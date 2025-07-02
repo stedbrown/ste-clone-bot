@@ -12,7 +12,7 @@ from pydub import AudioSegment
 from pydub.utils import which
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import elevenlabs
+from elevenlabs import generate, set_api_key
 
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY, ELEVENLABS_API_KEY, VOICE_ID
 
@@ -80,8 +80,14 @@ logger = logging.getLogger(__name__)
 # Configura OpenAI
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Configura ElevenLabs
-elevenlabs.set_api_key(ELEVENLABS_API_KEY)
+# Configura ElevenLabs - prova diversi metodi
+try:
+    set_api_key(ELEVENLABS_API_KEY)
+    logger.info("ElevenLabs configurato con set_api_key")
+except AttributeError:
+    # Se set_api_key non esiste, usa variabile d'ambiente
+    os.environ['ELEVEN_API_KEY'] = ELEVENLABS_API_KEY
+    logger.info("ElevenLabs configurato con variabile d'ambiente")
 
 class TelegramBot:
     def __init__(self):
@@ -348,7 +354,7 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         """Converte testo in audio usando ElevenLabs"""
         try:
             audio = await asyncio.to_thread(
-                elevenlabs.generate,
+                generate,
                 text=text,
                 voice=VOICE_ID,
                 model="eleven_multilingual_v2"
