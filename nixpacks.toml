@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python310", "pip", "ffmpeg"]
+nixPkgs = ["python310", "ffmpeg"]
 
 [phases.install]
 cmds = [
