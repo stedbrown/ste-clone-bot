@@ -1,7 +1,7 @@
 # Dependencies for Telegram Voice Bot
 python-telegram-bot==20.8
 openai==1.51.2
-elevenlabs==0.2.26
+elevenlabs==1.2.2
 python-dotenv==1.0.0
 pydub==0.25.1
 requests==2.31.0

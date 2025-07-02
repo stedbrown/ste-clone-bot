@@ -12,7 +12,7 @@ from pydub import AudioSegment
 from pydub.utils import which
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from elevenlabs.client import ElevenLabs
+from elevenlabs import ElevenLabs
 
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY, ELEVENLABS_API_KEY, VOICE_ID
 
@@ -348,13 +348,13 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         """Converte testo in audio usando ElevenLabs"""
         try:
             audio = await asyncio.to_thread(
-                elevenlabs_client.text_to_speech.convert,
-                voice_id=VOICE_ID,
+                elevenlabs_client.generate,
                 text=text,
-                model_id="eleven_multilingual_v2"
+                voice=VOICE_ID,
+                model="eleven_multilingual_v2"
             )
             
-            # Leggi i bytes dall'oggetto audio
+            # Converte l'audio in bytes
             audio_bytes = b''.join(audio)
             return audio_bytes
         
