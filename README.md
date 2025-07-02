@@ -106,36 +106,34 @@ python bot.py    # Avvia direttamente
 - Il bot mantiene la memoria delle ultime 10 interazioni per utente
 - Tutti i messaggi audio temporanei vengono eliminati automaticamente
 - Il bot è ottimizzato per l'ambiente di produzione Railway
+- Build ottimizzato per Railway deployment
 
 ## 🛠️ Funzionalità Tecniche
 
-- **Gestione asincrona**: Utilizzo di asyncio per operazioni non bloccanti
-- **File temporanei**: Gestione automatica di file temporanei con cleanup
-- **Logging**: Sistema completo di logging per debugging
-- **Gestione errori**: Handling robusto degli errori con messaggi informativi
-- **Conversione audio**: Supporto automatico per formati audio Telegram
+- **Trascrizione audio**: OpenAI Whisper per convertire messaggi vocali in testo
+- **AI Conversazionale**: GPT-3.5-turbo per risposte intelligenti e contestuali
+- **Sintesi vocale**: ElevenLabs per audio di alta qualità
+- **Gestione memoria**: Mantiene cronologia conversazione per continuità
+- **Data/ora italiana**: Risponde con contesto temporale appropriato
+- **Gestione errori**: Sistema robusto di error handling e retry
+- **Scalabilità**: Ottimizzato per deployment cloud su Railway
 
-## 🚨 Troubleshooting
+## 🔍 Troubleshooting
 
-### Errori comuni:
+Se riscontri problemi:
 
-**"Variabile d'ambiente non configurata"**
-- Verifica che il file `.env` esista e contenga tutte le variabili
+1. **Verifica le API Keys** - Assicurati che siano tutte configurate correttamente
+2. **Controlla i logs** - Usa la dashboard Railway per vedere errori specifici
+3. **Testa il token Telegram** - Verifica che il bot sia attivo su @BotFather
+4. **Verifica il Voice ID** - Controlla che l'ID voce ElevenLabs sia corretto
 
-**"FFmpeg non trovato"**
-- Installa FFmpeg e assicurati che sia nel PATH di sistema
-
-**"Errore API OpenAI/ElevenLabs"**
-- Verifica la validità delle API keys
-- Controlla i crediti disponibili sui rispettivi servizi
-
-**"Errore nella trascrizione"**
+Per problemi specifici:
 - Verifica che l'audio sia chiaro e comprensibile
 - Controlla la connessione internet
-
+  
 ## 🤝 Contributi
 
-Sentiti libero di aprire issue o pull request per miglioramenti!
+Contributi benvenuti! Apri una issue o pull request.
 
 ## 📄 Licenza
 
