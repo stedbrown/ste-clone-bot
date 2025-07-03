@@ -195,12 +195,13 @@ class TelegramBot:
             "📅 Gestire i tuoi appuntamenti su Google Calendar\n\n"
             "**Comandi disponibili:**\n"
             "📅 /prenota - Prenota un nuovo appuntamento (con bottoni!)\n"
-            "📋 /appuntamenti - Visualizza i prossimi appuntamenti\n"
+            "📋 /appuntamenti - Visualizza SOLO i tuoi appuntamenti\n"
             "❌ /cancella - Annulla prenotazione in corso\n"
             "🔄 /start - Ricomincia da capo\n\n"
             "Puoi anche dire semplicemente 'voglio prenotare un appuntamento per domani alle 15' e io ti aiuterò!\n\n"
             "📱 **NOVITÀ:** Ora uso bottoni interattivi per rendere tutto più veloce!\n"
-            "🔊 Ti risponderò sempre con **testo + audio**! 🎧"
+            "🔊 Ti risponderò sempre con **testo + audio**! 🎧\n\n"
+            "🔒 **Privacy:** I tuoi appuntamenti sono completamente privati - solo tu puoi vederli!"
         )
         await self.send_text_and_voice(update, welcome_message)
     
@@ -721,7 +722,8 @@ END:VCALENDAR"""
                     title=flow["data"]["title"],
                     start_time=flow["data"]["datetime"],
                     end_time=flow["data"]["end_time"],
-                    description=f"Appuntamento prenotato tramite bot Telegram"
+                    description=f"Appuntamento prenotato tramite bot Telegram",
+                    user_id=user_id
                 )
                 
                 if event:
@@ -901,7 +903,9 @@ END:VCALENDAR"""
     async def appuntamenti_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /appuntamenti"""
         try:
-            events = self.calendar_manager.get_upcoming_appointments(7)
+            user_id = update.effective_user.id
+            # Ottieni solo gli appuntamenti di questo utente
+            events = self.calendar_manager.get_upcoming_appointments(7, user_id)
             message = self.calendar_manager.format_appointment_list(events)
             await self.send_text_and_voice(update, message)
         except Exception as e:
@@ -1014,8 +1018,8 @@ END:VCALENDAR"""
         end_time = start_time + timedelta(hours=1)
         flow["data"]["end_time"] = end_time
         
-        # Controlla disponibilità
-        is_free, conflicts = self.calendar_manager.check_availability(start_time, end_time)
+        # Controlla disponibilità per questo specifico utente
+        is_free, conflicts = self.calendar_manager.check_availability(start_time, end_time, user_id)
         
         # DEBUG: Per ora forziamo sempre come libero per testare la creazione
         logger.info(f"🔧 DEBUG: Risultato controllo disponibilità: is_free={is_free}, conflicts={len(conflicts) if conflicts else 0}")
@@ -1075,7 +1079,8 @@ END:VCALENDAR"""
                     title=flow["data"]["title"],
                     start_time=flow["data"]["datetime"],
                     end_time=flow["data"]["end_time"],
-                    description=f"Appuntamento prenotato tramite bot Telegram"
+                    description=f"Appuntamento prenotato tramite bot Telegram",
+                    user_id=user_id
                 )
                 
                 if event:

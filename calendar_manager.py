@@ -152,7 +152,7 @@ class CalendarManager:
         except (ValueError, TypeError):
             return None
     
-    def check_availability(self, start_time: datetime, end_time: datetime) -> Tuple[bool, List[Dict]]:
+    def check_availability(self, start_time: datetime, end_time: datetime, user_id: int = None) -> Tuple[bool, List[Dict]]:
         """Controlla disponibilità nel calendario"""
         if not self.service:
             logger.error("❌ Servizio Google Calendar non disponibile per controllo disponibilità")
@@ -177,18 +177,31 @@ class CalendarManager:
             ).execute()
             
             events = events_result.get('items', [])
-            is_free = len(events) == 0
             
-            logger.info(f"✅ Controllo completato: {len(events)} eventi trovati")
-            if events:
+            # Se user_id è specificato, considera solo gli eventi dell'utente per i conflitti
+            # (un utente può prenotare anche se altri hanno appuntamenti nello stesso slot)
+            relevant_events = []
+            if user_id:
                 for event in events:
+                    description = event.get('description', '')
+                    if f"[USER_ID:{user_id}]" in description:
+                        relevant_events.append(event)
+            else:
+                # Se non specificato user_id, considera tutti gli eventi (modalità admin)
+                relevant_events = events
+            
+            is_free = len(relevant_events) == 0
+            
+            logger.info(f"✅ Controllo completato: {len(events)} eventi totali, {len(relevant_events)} dell'utente {user_id}")
+            if relevant_events:
+                for event in relevant_events:
                     event_start = event.get('start', {}).get('dateTime', 'N/A')
                     event_title = event.get('summary', 'Senza titolo')
-                    logger.info(f"   📅 Evento: {event_title} alle {event_start}")
+                    logger.info(f"   📅 Evento utente: {event_title} alle {event_start}")
             
-            logger.info(f"🟢 Slot {'LIBERO' if is_free else 'OCCUPATO'}")
+            logger.info(f"🟢 Slot {'LIBERO' if is_free else 'OCCUPATO'} per utente {user_id}")
             
-            return is_free, events
+            return is_free, relevant_events
             
         except HttpError as e:
             logger.error(f"❌ Errore HTTP nel controllo disponibilità: {e}")
@@ -202,7 +215,7 @@ class CalendarManager:
             logger.warning("⚠️ Assumendo slot libero a causa dell'errore")
             return True, []
     
-    def create_appointment(self, title: str, start_time: datetime, end_time: datetime, description: str = "") -> Optional[Dict]:
+    def create_appointment(self, title: str, start_time: datetime, end_time: datetime, description: str = "", user_id: int = None) -> Optional[Dict]:
         """Crea un appuntamento nel calendario"""
         if not self.service:
             logger.error("Servizio Google Calendar non disponibile")
@@ -216,6 +229,10 @@ class CalendarManager:
             # Converti in UTC per l'API
             start_utc = start_time.astimezone(pytz.UTC)
             end_utc = end_time.astimezone(pytz.UTC)
+            
+            # Aggiungi User ID alla descrizione per isolamento privacy
+            if user_id:
+                description = f"[USER_ID:{user_id}] {description}"
             
             event = {
                 'summary': title,
@@ -267,7 +284,7 @@ class CalendarManager:
             logger.error(f"❌ Errore generico nella creazione dell'appuntamento: {e}")
             return None
     
-    def get_upcoming_appointments(self, days: int = 7) -> List[Dict]:
+    def get_upcoming_appointments(self, days: int = 7, user_id: int = None) -> List[Dict]:
         """Ottieni i prossimi appuntamenti"""
         if not self.service:
             return []
@@ -282,10 +299,21 @@ class CalendarManager:
                 timeMax=end_time.astimezone(pytz.UTC).isoformat(),
                 singleEvents=True,
                 orderBy='startTime',
-                maxResults=20
+                maxResults=100  # Aumentiamo per filtrare poi
             ).execute()
             
-            return events_result.get('items', [])
+            events = events_result.get('items', [])
+            
+            # Filtra gli eventi per user_id se specificato
+            if user_id:
+                filtered_events = []
+                for event in events:
+                    description = event.get('description', '')
+                    if f"[USER_ID:{user_id}]" in description:
+                        filtered_events.append(event)
+                return filtered_events
+            
+            return events
             
         except HttpError as e:
             logger.error(f"Errore nel recupero appuntamenti: {e}")
