@@ -1,3 +1,7 @@
+# Bot Telegram per appuntamenti con registrazione utenti e messaggi vocali naturali
+# Versione: 3.0 - Sistema completo con UX migliorata
+# Ultimo aggiornamento: Messaggi vocali naturali e accompagnatori
+
 import os
 import logging
 import tempfile
