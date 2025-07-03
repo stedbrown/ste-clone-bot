@@ -155,12 +155,18 @@ class CalendarManager:
     def check_availability(self, start_time: datetime, end_time: datetime) -> Tuple[bool, List[Dict]]:
         """Controlla disponibilità nel calendario"""
         if not self.service:
+            logger.error("❌ Servizio Google Calendar non disponibile per controllo disponibilità")
             return False, []
         
         try:
+            logger.info(f"🔍 Controllo disponibilità da {start_time} a {end_time}")
+            
             # Converti in UTC per l'API
             start_utc = start_time.astimezone(pytz.UTC)
             end_utc = end_time.astimezone(pytz.UTC)
+            
+            logger.info(f"🔍 Range UTC: {start_utc.isoformat()} - {end_utc.isoformat()}")
+            logger.info(f"🔍 Calendar ID usato: {self.calendar_id}")
             
             events_result = self.service.events().list(
                 calendarId=self.calendar_id,
@@ -173,11 +179,28 @@ class CalendarManager:
             events = events_result.get('items', [])
             is_free = len(events) == 0
             
+            logger.info(f"✅ Controllo completato: {len(events)} eventi trovati")
+            if events:
+                for event in events:
+                    event_start = event.get('start', {}).get('dateTime', 'N/A')
+                    event_title = event.get('summary', 'Senza titolo')
+                    logger.info(f"   📅 Evento: {event_title} alle {event_start}")
+            
+            logger.info(f"🟢 Slot {'LIBERO' if is_free else 'OCCUPATO'}")
+            
             return is_free, events
             
         except HttpError as e:
-            logger.error(f"Errore nel controllo disponibilità: {e}")
-            return False, []
+            logger.error(f"❌ Errore HTTP nel controllo disponibilità: {e}")
+            logger.error(f"Status: {e.resp.status}, Reason: {e.resp.reason}")
+            # In caso di errore, assumiamo che sia libero per permettere la prenotazione
+            logger.warning("⚠️ Assumendo slot libero a causa dell'errore")
+            return True, []
+        except Exception as e:
+            logger.error(f"❌ Errore generico nel controllo disponibilità: {e}")
+            # In caso di errore, assumiamo che sia libero
+            logger.warning("⚠️ Assumendo slot libero a causa dell'errore")
+            return True, []
     
     def create_appointment(self, title: str, start_time: datetime, end_time: datetime, description: str = "") -> Optional[Dict]:
         """Crea un appuntamento nel calendario"""

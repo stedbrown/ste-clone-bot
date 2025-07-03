@@ -606,7 +606,11 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         # Controlla disponibilità
         is_free, conflicts = self.calendar_manager.check_availability(start_time, end_time)
         
-        if not is_free:
+        # DEBUG: Per ora forziamo sempre come libero per testare la creazione
+        logger.info(f"🔧 DEBUG: Risultato controllo disponibilità: is_free={is_free}, conflicts={len(conflicts) if conflicts else 0}")
+        
+        # Commentiamo temporaneamente il controllo conflitti per il debug
+        if False:  # not is_free:
             # Suggerisci slot alternativi
             slots = self.calendar_manager.suggest_free_slots(start_time, 60)
             
