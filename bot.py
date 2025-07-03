@@ -12,7 +12,7 @@ from pydub import AudioSegment
 from pydub.utils import which
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from elevenlabs import ElevenLabs
+from elevenlabs.client import ElevenLabs
 
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY, ELEVENLABS_API_KEY, VOICE_ID
 
