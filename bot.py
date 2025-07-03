@@ -3,8 +3,10 @@ import logging
 import tempfile
 import asyncio
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
+import re
+import json
 
 from openai import OpenAI
 import requests
@@ -15,6 +17,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from elevenlabs.client import ElevenLabs
 
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY, ELEVENLABS_API_KEY, VOICE_ID
+from calendar_manager import CalendarManager
 
 # Configurazione per Railway
 PORT = int(os.environ.get('PORT', 8000))
@@ -95,6 +98,14 @@ class TelegramBot:
         # Struttura: {user_id: [{"role": "user/assistant", "content": "messaggio"}, ...]}
         self.conversation_history = {}
         self.max_history_length = 10  # Mantieni gli ultimi 10 messaggi per utente
+        
+        # Dizionario per gestire i flussi di prenotazione in corso
+        # Struttura: {user_id: {"step": "waiting_datetime|waiting_title|waiting_confirmation", "data": {...}}}
+        self.booking_flows = {}
+        
+        # Inizializza il gestore del calendario
+        self.calendar_manager = CalendarManager()
+        
         self.setup_handlers()
     
     def setup_handlers(self):
@@ -107,6 +118,11 @@ class TelegramBot:
         
         # Gestore per il comando /health (per Railway health check)
         self.application.add_handler(CommandHandler("health", self.health_command))
+        
+        # Gestori per comandi del calendario
+        self.application.add_handler(CommandHandler("prenota", self.prenota_command))
+        self.application.add_handler(CommandHandler("appuntamenti", self.appuntamenti_command))
+        self.application.add_handler(CommandHandler("cancella", self.cancella_command))
         
         # Gestore per messaggi vocali
         self.application.add_handler(MessageHandler(filters.VOICE, self.handle_voice_message))
@@ -167,13 +183,18 @@ class TelegramBot:
         self.clear_user_history(user_id)
         
         welcome_message = (
-            f"🤖 Ciao {user_name}! Sono il tuo assistente vocale.\n\n"
-            "Puoi inviarmi:\n"
-            "📝 Messaggi di testo\n"
-            "🎤 Messaggi vocali\n\n"
-            "Ti risponderò sempre con un messaggio vocale! 🔊\n\n"
-            "💭 Mantengo la memoria della nostra conversazione.\n"
-            "🔄 Usa /start per ricominciare da capo."
+            f"🤖 Ciao {user_name}! Sono il tuo assistente vocale e posso gestire i tuoi appuntamenti!\n\n"
+            "**Cosa posso fare:**\n"
+            "📝 Rispondere ai tuoi messaggi di testo\n"
+            "🎤 Rispondere ai tuoi messaggi vocali\n"
+            "📅 Gestire i tuoi appuntamenti su Google Calendar\n\n"
+            "**Comandi disponibili:**\n"
+            "📅 /prenota - Prenota un nuovo appuntamento\n"
+            "📋 /appuntamenti - Visualizza i prossimi appuntamenti\n"
+            "❌ /cancella - Annulla prenotazione in corso\n"
+            "🔄 /start - Ricomincia da capo\n\n"
+            "Puoi anche dire semplicemente 'voglio prenotare un appuntamento per domani alle 15' e io ti aiuterò!\n\n"
+            "Ti risponderò sempre con un messaggio vocale! 🔊"
         )
         await update.message.reply_text(welcome_message)
     
@@ -238,7 +259,19 @@ class TelegramBot:
         """Gestisce i messaggi di testo"""
         try:
             text = update.message.text
+            user_id = update.effective_user.id
             logger.info(f"Ricevuto messaggio di testo da {update.effective_user.first_name}: {text}")
+            
+            # Controlla se l'utente è in un flusso di prenotazione
+            if user_id in self.booking_flows:
+                await self.handle_booking_flow(update, text)
+                return
+            
+            # Controlla se il messaggio riguarda prenotazioni (parsing naturale)
+            booking_intent = self.detect_booking_intent(text)
+            if booking_intent:
+                await self.start_booking_flow(update, text)
+                return
             
             # Invia messaggio di stato
             status_message = await update.message.reply_text("💭 Sto pensando alla risposta...")
@@ -305,6 +338,12 @@ INFORMAZIONI TEMPORALI ATTUALI:
 - Data e ora: {data_ora_italiana}
 - {saluto_contesto}
 - Giorno della settimana: {giorno_settimana}
+
+GESTIONE APPUNTAMENTI:
+Se l'utente menziona appuntamenti, prenotazioni o vuole organizzare incontri, rispondi in modo naturale ma ricorda che il sistema ha funzionalità specifiche per questo:
+- Possono usare /prenota per prenotare
+- Possono dire naturalmente "voglio prenotare per domani alle 15" 
+- Possono vedere gli appuntamenti con /appuntamenti
 
 Usa queste informazioni quando appropriate per dare contesto temporale alle tue risposte. Se ti chiedono che giorno è, che ora è, ecc., rispondi naturalmente basandoti su queste informazioni."""
 
@@ -411,6 +450,239 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         except Exception as e:
             logger.error(f"Errore nell'elaborazione e risposta: {e}")
             await status_message.edit_text("❌ Si è verificato un errore nel generare la risposta vocale.")
+    
+    # === GESTIONE CALENDARIO ===
+    
+    def detect_booking_intent(self, text: str) -> bool:
+        """Rileva se il messaggio contiene un'intenzione di prenotare un appuntamento"""
+        keywords_booking = [
+            'prenota', 'appuntamento', 'prenotare', 'fissare', 'fissa',
+            'meeting', 'incontro', 'riunione', 'disponibilità', 'libero',
+            'quando sei libero', 'quando puoi', 'possiamo vederci'
+        ]
+        
+        text_lower = text.lower()
+        return any(keyword in text_lower for keyword in keywords_booking)
+    
+    async def prenota_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce il comando /prenota"""
+        user_id = update.effective_user.id
+        
+        # Inizia il flusso di prenotazione
+        self.booking_flows[user_id] = {
+            "step": "waiting_datetime",
+            "data": {}
+        }
+        
+        message = (
+            "📅 **Prenotazione Appuntamento**\n\n"
+            "Dimmi quando vuoi prenotare l'appuntamento.\n\n"
+            "Puoi scrivere ad esempio:\n"
+            "• Domani alle 15:00\n"
+            "• Lunedì alle 10:30\n"
+            "• 25/12 alle 14:00\n"
+            "• Oggi pomeriggio\n\n"
+            "Scrivi /cancella per annullare."
+        )
+        
+        await update.message.reply_text(message)
+    
+    async def appuntamenti_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce il comando /appuntamenti"""
+        try:
+            events = self.calendar_manager.get_upcoming_appointments(7)
+            message = self.calendar_manager.format_appointment_list(events)
+            await update.message.reply_text(message)
+        except Exception as e:
+            logger.error(f"Errore nel recupero appuntamenti: {e}")
+            await update.message.reply_text("❌ Errore nel recupero degli appuntamenti.")
+    
+    async def cancella_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce il comando /cancella per annullare prenotazioni in corso"""
+        user_id = update.effective_user.id
+        
+        if user_id in self.booking_flows:
+            del self.booking_flows[user_id]
+            await update.message.reply_text("❌ Prenotazione annullata.")
+        else:
+            await update.message.reply_text("Non hai prenotazioni in corso da annullare.")
+    
+    async def start_booking_flow(self, update: Update, text: str):
+        """Avvia il flusso di prenotazione dal linguaggio naturale"""
+        user_id = update.effective_user.id
+        
+        # Prova a estrarre data/ora dal messaggio
+        parsed_datetime = self.calendar_manager.parse_datetime_natural(text)
+        
+        if parsed_datetime:
+            # Data/ora trovata, chiedi conferma
+            self.booking_flows[user_id] = {
+                "step": "waiting_title",
+                "data": {
+                    "datetime": parsed_datetime,
+                    "original_text": text
+                }
+            }
+            
+            formatted_time = parsed_datetime.strftime("%d/%m/%Y alle %H:%M")
+            message = (
+                f"📅 Perfetto! Ho capito che vuoi prenotare per **{formatted_time}**.\n\n"
+                f"Ora dimmi l'oggetto dell'appuntamento (es: 'Riunione di lavoro', 'Visita medica', ecc.)"
+            )
+            await update.message.reply_text(message)
+        else:
+            # Non riesco a capire la data, chiedo più info
+            self.booking_flows[user_id] = {
+                "step": "waiting_datetime",
+                "data": {}
+            }
+            
+            message = (
+                "📅 Ho capito che vuoi prenotare un appuntamento!\n\n"
+                "Però non sono riuscito a capire quando. Puoi essere più specifico?\n\n"
+                "Ad esempio:\n"
+                "• Domani alle 15:00\n"
+                "• Lunedì prossimo alle 10:30\n"
+                "• 25/12/2024 alle 14:00"
+            )
+            await update.message.reply_text(message)
+    
+    async def handle_booking_flow(self, update: Update, text: str):
+        """Gestisce il flusso di prenotazione in corso"""
+        user_id = update.effective_user.id
+        flow = self.booking_flows[user_id]
+        
+        if flow["step"] == "waiting_datetime":
+            await self._handle_datetime_input(update, text, flow)
+        elif flow["step"] == "waiting_title":
+            await self._handle_title_input(update, text, flow)
+        elif flow["step"] == "waiting_confirmation":
+            await self._handle_confirmation_input(update, text, flow)
+    
+    async def _handle_datetime_input(self, update: Update, text: str, flow: dict):
+        """Gestisce l'input della data/ora"""
+        user_id = update.effective_user.id
+        
+        parsed_datetime = self.calendar_manager.parse_datetime_natural(text)
+        
+        if parsed_datetime:
+            # Controlla se la data è nel passato
+            now = datetime.now(self.calendar_manager.timezone)
+            if parsed_datetime < now:
+                await update.message.reply_text(
+                    "⏰ La data che hai indicato è nel passato! Dimmi una data futura."
+                )
+                return
+            
+            # Salva la data e passa al prossimo step
+            flow["data"]["datetime"] = parsed_datetime
+            flow["step"] = "waiting_title"
+            
+            formatted_time = parsed_datetime.strftime("%d/%m/%Y alle %H:%M")
+            await update.message.reply_text(
+                f"✅ Perfetto! **{formatted_time}**\n\n"
+                f"Ora dimmi l'oggetto dell'appuntamento."
+            )
+        else:
+            await update.message.reply_text(
+                "❓ Non sono riuscito a capire la data. Prova con:\n"
+                "• Domani alle 15:00\n"
+                "• Lunedì alle 10:30\n"
+                "• 25/12 alle 14:00"
+            )
+    
+    async def _handle_title_input(self, update: Update, text: str, flow: dict):
+        """Gestisce l'input del titolo dell'appuntamento"""
+        user_id = update.effective_user.id
+        
+        # Salva il titolo
+        flow["data"]["title"] = text
+        
+        # Calcola durata (default 1 ora)
+        start_time = flow["data"]["datetime"]
+        end_time = start_time + timedelta(hours=1)
+        flow["data"]["end_time"] = end_time
+        
+        # Controlla disponibilità
+        is_free, conflicts = self.calendar_manager.check_availability(start_time, end_time)
+        
+        if not is_free:
+            # Suggerisci slot alternativi
+            slots = self.calendar_manager.suggest_free_slots(start_time, 60)
+            
+            message = f"⚠️ **Conflitto di orario!**\n\n"
+            message += f"Hai già un impegno in quel momento.\n\n"
+            
+            if slots:
+                message += "Ecco alcuni orari liberi:\n"
+                for i, slot in enumerate(slots, 1):
+                    formatted_slot = slot.strftime("%d/%m/%Y alle %H:%M")
+                    message += f"{i}. {formatted_slot}\n"
+                message += "\nScrivi il numero dello slot che preferisci o una nuova data."
+                
+                flow["data"]["suggested_slots"] = slots
+            else:
+                message += "Non ho trovato slot liberi in quella giornata. Dimmi un'altra data."
+            
+            await update.message.reply_text(message)
+            return
+        
+        # Slot libero, chiedi conferma
+        flow["step"] = "waiting_confirmation"
+        
+        formatted_start = start_time.strftime("%d/%m/%Y alle %H:%M")
+        formatted_end = end_time.strftime("%H:%M")
+        
+        message = (
+            f"📋 **Riepilogo Appuntamento**\n\n"
+            f"📅 **Data:** {formatted_start}\n"
+            f"⏰ **Fine:** {formatted_end}\n"
+            f"📝 **Oggetto:** {text}\n\n"
+            f"Confermi? Scrivi 'sì' per prenotare o 'no' per annullare."
+        )
+        
+        await update.message.reply_text(message)
+    
+    async def _handle_confirmation_input(self, update: Update, text: str, flow: dict):
+        """Gestisce la conferma dell'appuntamento"""
+        user_id = update.effective_user.id
+        
+        text_lower = text.lower().strip()
+        
+        if text_lower in ['sì', 'si', 'yes', 'ok', 'conferma', 'confermo']:
+            # Crea l'appuntamento
+            try:
+                event = self.calendar_manager.create_appointment(
+                    title=flow["data"]["title"],
+                    start_time=flow["data"]["datetime"],
+                    end_time=flow["data"]["end_time"],
+                    description=f"Appuntamento prenotato tramite bot Telegram"
+                )
+                
+                if event:
+                    formatted_time = flow["data"]["datetime"].strftime("%d/%m/%Y alle %H:%M")
+                    message = (
+                        f"✅ **Appuntamento confermato!**\n\n"
+                        f"📅 {formatted_time}\n"
+                        f"📝 {flow['data']['title']}\n\n"
+                        f"Ti invierò un promemoria prima dell'appuntamento. 🔔"
+                    )
+                    await update.message.reply_text(message)
+                else:
+                    await update.message.reply_text("❌ Errore nella creazione dell'appuntamento.")
+                
+            except Exception as e:
+                logger.error(f"Errore nella creazione appuntamento: {e}")
+                await update.message.reply_text("❌ Errore nella creazione dell'appuntamento.")
+            
+            # Pulisci il flusso
+            del self.booking_flows[user_id]
+            
+        elif text_lower in ['no', 'annulla', 'cancel']:
+            await update.message.reply_text("❌ Appuntamento annullato.")
+            del self.booking_flows[user_id]
+        else:
+            await update.message.reply_text("❓ Non ho capito. Scrivi 'sì' per confermare o 'no' per annullare.")
     
     def run(self):
         """Avvia il bot"""
