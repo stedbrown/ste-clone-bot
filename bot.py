@@ -12,7 +12,7 @@ from pydub import AudioSegment
 from pydub.utils import which
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from elevenlabs import generate, set_api_key
+from elevenlabs import ElevenLabs
 
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY, ELEVENLABS_API_KEY, VOICE_ID
 
@@ -80,14 +80,13 @@ logger = logging.getLogger(__name__)
 # Configura OpenAI
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Configura ElevenLabs - prova diversi metodi
+# Configura ElevenLabs con la nuova API
 try:
-    set_api_key(ELEVENLABS_API_KEY)
-    logger.info("ElevenLabs configurato con set_api_key")
-except AttributeError:
-    # Se set_api_key non esiste, usa variabile d'ambiente
-    os.environ['ELEVEN_API_KEY'] = ELEVENLABS_API_KEY
-    logger.info("ElevenLabs configurato con variabile d'ambiente")
+    elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+    logger.info("ElevenLabs configurato con client API")
+except Exception as e:
+    logger.error(f"Errore nella configurazione di ElevenLabs: {e}")
+    elevenlabs_client = None
 
 class TelegramBot:
     def __init__(self):
@@ -353,15 +352,25 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
     async def text_to_speech(self, text: str) -> bytes:
         """Converte testo in audio usando ElevenLabs"""
         try:
+            if elevenlabs_client is None:
+                raise Exception("ElevenLabs client non configurato")
+            
+            # Usa la nuova API di ElevenLabs
             audio = await asyncio.to_thread(
-                generate,
+                elevenlabs_client.generate,
                 text=text,
                 voice=VOICE_ID,
                 model="eleven_multilingual_v2"
             )
             
             # Converte l'audio in bytes
-            audio_bytes = b''.join(audio)
+            if hasattr(audio, '__iter__') and not isinstance(audio, (str, bytes)):
+                # Se audio è un iteratore di chunk
+                audio_bytes = b''.join(audio)
+            else:
+                # Se audio è già bytes
+                audio_bytes = audio if isinstance(audio, bytes) else bytes(audio)
+            
             return audio_bytes
         
         except Exception as e:
