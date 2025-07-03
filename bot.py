@@ -20,6 +20,7 @@ from elevenlabs.client import ElevenLabs
 
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY, ELEVENLABS_API_KEY, VOICE_ID
 from calendar_manager import CalendarManager
+from user_manager import UserManager
 
 # Configurazione per Railway
 PORT = int(os.environ.get('PORT', 8000))
@@ -105,8 +106,13 @@ class TelegramBot:
         # Struttura: {user_id: {"step": "waiting_datetime|waiting_title|waiting_confirmation", "data": {...}}}
         self.booking_flows = {}
         
-        # Inizializza il gestore del calendario
+        # Dizionario per gestire i flussi di registrazione
+        # Struttura: {user_id: {"step": "waiting_nome|waiting_cognome|...", "data": {...}}}
+        self.registration_flows = {}
+        
+        # Inizializza i gestori
         self.calendar_manager = CalendarManager()
+        self.user_manager = UserManager()
         
         self.setup_handlers()
     
@@ -125,6 +131,7 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("prenota", self.prenota_command))
         self.application.add_handler(CommandHandler("appuntamenti", self.appuntamenti_command))
         self.application.add_handler(CommandHandler("cancella", self.cancella_command))
+        self.application.add_handler(CommandHandler("profilo", self.profilo_command))
         
         # Gestore per messaggi vocali
         self.application.add_handler(MessageHandler(filters.VOICE, self.handle_voice_message))
@@ -187,15 +194,26 @@ class TelegramBot:
         # Cancella la cronologia precedente
         self.clear_user_history(user_id)
         
+        # Controlla se l'utente è già registrato
+        if not self.user_manager.is_user_registered(user_id):
+            await self.start_registration_flow(update)
+            return
+        
+        # Utente già registrato - mostra messaggio di benvenuto personalizzato
+        user_display_name = self.user_manager.get_user_display_name(user_id)
+        user_info = self.user_manager.get_user_info(user_id)
+        
         welcome_message = (
-            f"🤖 Ciao {user_name}! Sono il tuo assistente vocale e posso gestire i tuoi appuntamenti!\n\n"
-            "**Cosa posso fare:**\n"
+            f"🤖 Bentornato **{user_display_name}**! 🎉\n\n"
+            f"📊 Hai già **{user_info['total_appointments']} appuntamenti** prenotati\n\n"
+            "**Cosa posso fare per te:**\n"
             "📝 Rispondere ai tuoi messaggi di testo\n"
             "🎤 Rispondere ai tuoi messaggi vocali\n"
             "📅 Gestire i tuoi appuntamenti su Google Calendar\n\n"
             "**Comandi disponibili:**\n"
             "📅 /prenota - Prenota un nuovo appuntamento (con bottoni!)\n"
             "📋 /appuntamenti - Visualizza SOLO i tuoi appuntamenti\n"
+            "👤 /profilo - Visualizza e modifica i tuoi dati\n"
             "❌ /cancella - Annulla prenotazione in corso\n"
             "🔄 /start - Ricomincia da capo\n\n"
             "Puoi anche dire semplicemente 'voglio prenotare un appuntamento per domani alle 15' e io ti aiuterò!\n\n"
@@ -204,7 +222,34 @@ class TelegramBot:
             "🔒 **Privacy:** I tuoi appuntamenti sono completamente privati - solo tu puoi vederli!"
         )
         await self.send_text_and_voice(update, welcome_message)
-    
+
+    async def start_registration_flow(self, update: Update):
+        """Avvia il processo di registrazione per un nuovo utente"""
+        user_id = update.effective_user.id
+        user_name = update.effective_user.first_name
+        
+        # Inizializza il flusso di registrazione
+        self.registration_flows[user_id] = {
+            "step": "waiting_nome",
+            "data": {
+                "telegram_name": user_name
+            }
+        }
+        
+        welcome_message = (
+            f"👋 Ciao **{user_name}**! Benvenuto! 🎉\n\n"
+            "Prima di iniziare, ho bisogno di raccogliere alcune informazioni per offrirti un servizio migliore.\n\n"
+            "📝 **Questo mi permetterà di:**\n"
+            "• Identificarti facilmente negli appuntamenti\n"
+            "• Contattarti se necessario\n"
+            "• Offrirti un servizio più personalizzato\n\n"
+            "🔒 **I tuoi dati sono completamente privati e sicuri.**\n\n"
+            "**Iniziamo! Come ti chiami?**\n"
+            "_(Scrivi solo il tuo nome)_"
+        )
+        
+        await self.send_text_and_voice(update, welcome_message)
+
     async def clear_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /clear per cancellare la cronologia"""
         user_id = update.effective_user.id
@@ -286,6 +331,16 @@ class TelegramBot:
             text = update.message.text
             user_id = update.effective_user.id
             logger.info(f"Ricevuto messaggio di testo da {update.effective_user.first_name}: {text}")
+            
+            # Controlla se l'utente è in un flusso di registrazione
+            if user_id in self.registration_flows:
+                await self.handle_registration_flow(update, text)
+                return
+            
+            # Controlla se l'utente è registrato
+            if not self.user_manager.is_user_registered(user_id):
+                await self.start_registration_flow(update)
+                return
             
             # Controlla se l'utente è in un flusso di prenotazione
             if user_id in self.booking_flows:
@@ -718,11 +773,14 @@ END:VCALENDAR"""
         if confirmed:
             # Crea l'appuntamento
             try:
+                # Ottieni le informazioni complete dell'utente per la descrizione
+                user_info = self.user_manager.format_user_for_calendar(user_id)
+                
                 event = self.calendar_manager.create_appointment(
                     title=flow["data"]["title"],
                     start_time=flow["data"]["datetime"],
                     end_time=flow["data"]["end_time"],
-                    description=f"Appuntamento prenotato tramite bot Telegram",
+                    description=f"Appuntamento prenotato tramite bot Telegram\n\n{user_info}",
                     user_id=user_id
                 )
                 
@@ -803,6 +861,9 @@ END:VCALENDAR"""
                     except Exception as e:
                         logger.error(f"Errore nell'invio del file .ics: {e}")
                         # Non bloccare il flusso se il file .ics fallisce
+                    
+                    # Aggiorna le statistiche dell'utente
+                    self.user_manager.update_user_stats(user_id, formatted_time)
                     
                     logger.info(f"Appuntamento creato per {query.from_user.first_name}: {formatted_time}")
                 else:
@@ -921,7 +982,105 @@ END:VCALENDAR"""
             await update.message.reply_text("❌ Prenotazione annullata.")
         else:
             await update.message.reply_text("Non hai prenotazioni in corso da annullare.")
-    
+
+    async def profilo_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce il comando /profilo per visualizzare le informazioni utente"""
+        user_id = update.effective_user.id
+        
+        if not self.user_manager.is_user_registered(user_id):
+            await self.start_registration_flow(update)
+            return
+        
+        contact_info = self.user_manager.get_user_contact_info(user_id)
+        message = f"👤 **Il tuo profilo:**\n\n{contact_info}\n\n_Per modificare i dati, contatta l'amministratore._"
+        
+        await self.send_text_and_voice(update, message)
+
+    async def handle_registration_flow(self, update: Update, text: str):
+        """Gestisce il flusso di registrazione utente"""
+        user_id = update.effective_user.id
+        flow = self.registration_flows[user_id]
+        
+        if flow["step"] == "waiting_nome":
+            flow["data"]["nome"] = text.strip().title()
+            flow["step"] = "waiting_cognome"
+            
+            message = f"✅ Perfetto **{text.strip().title()}**!\n\nOra dimmi il tuo **cognome**:"
+            await self.send_text_and_voice(update, message)
+            
+        elif flow["step"] == "waiting_cognome":
+            flow["data"]["cognome"] = text.strip().title()
+            flow["step"] = "waiting_email"
+            
+            message = f"✅ **{flow['data']['nome']} {text.strip().title()}**\n\nAdesso mi serve la tua **email**:"
+            await self.send_text_and_voice(update, message)
+            
+        elif flow["step"] == "waiting_email":
+            email = text.strip().lower()
+            if "@" not in email or "." not in email:
+                message = "❌ Email non valida. Riprova con un formato corretto (es: nome@esempio.com):"
+                await self.send_text_and_voice(update, message)
+                return
+                
+            flow["data"]["email"] = email
+            flow["step"] = "waiting_telefono"
+            
+            message = "✅ Email salvata!\n\nAdesso dimmi il tuo **numero di telefono**:"
+            await self.send_text_and_voice(update, message)
+            
+        elif flow["step"] == "waiting_telefono":
+            telefono = text.strip()
+            flow["data"]["telefono"] = telefono
+            flow["step"] = "waiting_via"
+            
+            message = "✅ Telefono salvato!\n\nDimmi il tuo **indirizzo** (via e numero civico):"
+            await self.send_text_and_voice(update, message)
+            
+        elif flow["step"] == "waiting_via":
+            flow["data"]["via"] = text.strip().title()
+            flow["step"] = "waiting_citta"
+            
+            message = "✅ Indirizzo salvato!\n\nInfine, dimmi la tua **città**:"
+            await self.send_text_and_voice(update, message)
+            
+        elif flow["step"] == "waiting_citta":
+            flow["data"]["citta"] = text.strip().title()
+            
+            # Completa la registrazione
+            success = self.user_manager.register_user(
+                user_id=user_id,
+                telegram_name=flow["data"]["telegram_name"],
+                nome=flow["data"]["nome"],
+                cognome=flow["data"]["cognome"],
+                email=flow["data"]["email"],
+                telefono=flow["data"]["telefono"],
+                via=flow["data"]["via"],
+                citta=flow["data"]["citta"]
+            )
+            
+            if success:
+                # Pulisci il flusso di registrazione
+                del self.registration_flows[user_id]
+                
+                # Messaggio di benvenuto completato
+                welcome_message = (
+                    f"🎉 **Registrazione completata!**\n\n"
+                    f"Benvenuto **{flow['data']['nome']} {flow['data']['cognome']}**!\n\n"
+                    f"✅ I tuoi dati sono stati salvati in sicurezza.\n"
+                    f"📅 Ora puoi prenotare i tuoi appuntamenti!\n\n"
+                    f"**Comandi disponibili:**\n"
+                    f"📅 /prenota - Prenota un appuntamento\n"
+                    f"📋 /appuntamenti - Vedi i tuoi appuntamenti\n"
+                    f"👤 /profilo - Visualizza il tuo profilo\n\n"
+                    f"Puoi anche dire semplicemente: _'Voglio prenotare per domani alle 15'_ e io ti aiuterò! 🚀"
+                )
+                
+                await self.send_text_and_voice(update, welcome_message)
+            else:
+                message = "❌ Errore nella registrazione. Riprova più tardi o contatta l'assistenza."
+                await self.send_text_and_voice(update, message)
+                del self.registration_flows[user_id]
+
     async def start_booking_flow(self, update: Update, text: str):
         """Avvia il flusso di prenotazione dal linguaggio naturale"""
         user_id = update.effective_user.id
@@ -1075,11 +1234,14 @@ END:VCALENDAR"""
         if text_lower in ['sì', 'si', 'yes', 'ok', 'conferma', 'confermo']:
             # Crea l'appuntamento
             try:
+                # Ottieni le informazioni complete dell'utente per la descrizione
+                user_info = self.user_manager.format_user_for_calendar(user_id)
+                
                 event = self.calendar_manager.create_appointment(
                     title=flow["data"]["title"],
                     start_time=flow["data"]["datetime"],
                     end_time=flow["data"]["end_time"],
-                    description=f"Appuntamento prenotato tramite bot Telegram",
+                    description=f"Appuntamento prenotato tramite bot Telegram\n\n{user_info}",
                     user_id=user_id
                 )
                 
