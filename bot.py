@@ -355,12 +355,13 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
             if elevenlabs_client is None:
                 raise Exception("ElevenLabs client non configurato")
             
-            # Usa la nuova API di ElevenLabs
+            # Usa la nuova API di ElevenLabs con text_to_speech.convert
             audio = await asyncio.to_thread(
-                elevenlabs_client.generate,
+                elevenlabs_client.text_to_speech.convert,
                 text=text,
-                voice=VOICE_ID,
-                model="eleven_multilingual_v2"
+                voice_id=VOICE_ID,
+                model_id="eleven_multilingual_v2",
+                output_format="mp3_44100_128"
             )
             
             # Converte l'audio in bytes
