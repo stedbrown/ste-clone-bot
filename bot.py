@@ -469,7 +469,7 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
             logger.error(f"Errore nella generazione della risposta: {e}")
             return "Mi dispiace, si è verificato un errore nel generare la risposta."
     
-    async def send_text_and_voice(self, update: Update, text: str, keyboard: InlineKeyboardMarkup = None, edit_message_id: int = None):
+    async def send_text_and_voice(self, update: Update, text: str, keyboard: InlineKeyboardMarkup = None, edit_message_id: int = None, voice_text: str = None):
         """Invia sia messaggio di testo che vocale, opzionalmente con bottoni inline"""
         try:
             user_id = update.effective_user.id
@@ -491,11 +491,16 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
                     parse_mode='Markdown'
                 )
             
-            # Genera e invia anche l'audio
+            # Genera e invia anche l'audio con testo personalizzato
             try:
-                # Rimuovi markdown dal testo per l'audio (ElevenLabs non lo gestisce bene)
-                clean_text = re.sub(r'[*_`\[\]]', '', text)
-                clean_text = re.sub(r'#{1,6}\s*', '', clean_text)  # Rimuovi headers markdown
+                # Usa testo vocale personalizzato se fornito, altrimenti genera uno naturale
+                if voice_text:
+                    audio_text = voice_text
+                else:
+                    audio_text = self.generate_natural_voice_text(text, user_id)
+                
+                # Pulisce il testo per l'audio
+                clean_text = self.clean_text_for_audio(audio_text)
                 
                 audio_data = await self.text_to_speech(clean_text)
                 
@@ -528,6 +533,108 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
                 )
             else:
                 return await update.effective_chat.send_message(text=f"❌ {text}")
+
+    def clean_text_for_audio(self, text: str) -> str:
+        """Pulisce il testo per renderlo più naturale per l'audio"""
+        import re
+        
+        # Rimuove markdown
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # **bold**
+        text = re.sub(r'\*(.*?)\*', r'\1', text)      # *italic*
+        text = re.sub(r'_(.*?)_', r'\1', text)        # _italic_
+        text = re.sub(r'`(.*?)`', r'\1', text)        # `code`
+        
+        # Rimuove emoji e simboli
+        text = re.sub(r'[🎉🎯🎮🎧🎤📝📅📋📊📱👤👋✅❌🔒🔄🚀🏆💾🆕🔄🗄️]', '', text)
+        
+        # Rimuove bullet points
+        text = re.sub(r'^[•\-\*]\s*', '', text, flags=re.MULTILINE)
+        
+        # Rimuove linee vuote multiple
+        text = re.sub(r'\n\s*\n', '\n', text)
+        
+        # Rimuove spazi extra
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
+
+    def generate_natural_voice_text(self, original_text: str, user_id: int) -> str:
+        """Genera un testo vocale naturale e accompagnatore basato sul contenuto"""
+        
+        # Ottieni il nome dell'utente se registrato
+        user_name = "amico"
+        if self.user_manager.is_user_registered(user_id):
+            user_info = self.user_manager.get_user_info(user_id)
+            user_name = user_info["nome"] if user_info else "amico"
+        
+        # Analizza il tipo di messaggio e genera risposta vocale naturale
+        text_lower = original_text.lower()
+        
+        # Messaggi di benvenuto
+        if "benvenuto" in text_lower or "bentornato" in text_lower:
+            return f"Ciao {user_name}! Sono qui per aiutarti con i tuoi appuntamenti. Dimmi pure cosa ti serve!"
+        
+        # Registrazione
+        if "registrazione completata" in text_lower:
+            return f"Perfetto {user_name}! Ora sei registrato e possiamo lavorare insieme. Sono qui per te!"
+        
+        # Richiesta dati registrazione
+        if "come ti chiami" in text_lower:
+            return "Dimmi il tuo nome, così posso conoscerti meglio!"
+        elif "cognome" in text_lower and "dimmi" in text_lower:
+            return "Perfetto! Ora dimmi il tuo cognome."
+        elif "email" in text_lower and "serve" in text_lower:
+            return "Adesso ho bisogno della tua email per poterti contattare se necessario."
+        elif "telefono" in text_lower and "dimmi" in text_lower:
+            return "Ottimo! Ora dimmi il tuo numero di telefono."
+        elif "indirizzo" in text_lower and "dimmi" in text_lower:
+            return "Quasi finito! Dimmi il tuo indirizzo completo."
+        elif "città" in text_lower and "dimmi" in text_lower:
+            return "Ultima cosa! In che città vivi?"
+        
+        # Conferme durante registrazione
+        if "email salvata" in text_lower:
+            return "Perfetto! Email registrata."
+        elif "telefono salvato" in text_lower:
+            return "Bene! Numero salvato."
+        elif "indirizzo salvato" in text_lower:
+            return "Ottimo! Indirizzo registrato."
+        
+        # Prenotazioni
+        if "quando vorresti" in text_lower or "che giorno" in text_lower:
+            return f"Dimmi quando preferisci, {user_name}. Puoi anche usare i bottoni qui sotto per andare più veloce!"
+        
+        if "che tipo di appuntamento" in text_lower:
+            return "Dimmi brevemente di cosa si tratta, così posso preparare tutto per bene."
+        
+        # Conferme appuntamento
+        if "appuntamento creato" in text_lower or "confermato" in text_lower or "tutto sistemato" in text_lower:
+            confirmations = [
+                f"Perfetto {user_name}! Il tuo appuntamento è confermato. Ti aspetto!",
+                f"Ottimo {user_name}! Tutto a posto. Ci vediamo presto!",
+                f"Fantastico! Appuntamento fissato. Sarà un piacere vederti, {user_name}!",
+                f"Eccellente {user_name}! È tutto sistemato. Non vedo l'ora di incontrarti!"
+            ]
+            return random.choice(confirmations)
+        
+        # Errori
+        if "errore" in text_lower or "problema" in text_lower:
+            return "Ops! Qualcosa è andato storto. Proviamo di nuovo insieme, ok?"
+        
+        # Lista appuntamenti
+        if "prossimi appuntamenti" in text_lower:
+            return "Ecco i tuoi appuntamenti in programma!"
+        
+        # Profilo
+        if "il tuo profilo" in text_lower:
+            return "Questi sono i tuoi dati che ho salvato. Tutto ok?"
+        
+        # Annullamenti
+        if "annullata" in text_lower or "annullato" in text_lower:
+            return "Nessun problema! Quando vuoi riprovare, sono qui."
+        
+        # Default: messaggio generico accompagnatore
+        return f"Ecco le informazioni che ti servono, {user_name}!"
 
     async def text_to_speech(self, text: str) -> bytes:
         """Converte testo in audio usando ElevenLabs"""
@@ -802,17 +909,22 @@ END:VCALENDAR"""
                     # Rimuovi i bottoni e aggiorna il messaggio
                     await query.edit_message_text(message, parse_mode='Markdown')
                     
-                    # Invia anche il messaggio vocale di conferma
-                    fake_update = type('obj', (object,), {
-                        'effective_chat': query.message.chat,
-                        'effective_user': query.from_user
-                    })()
+                    # Invia anche il messaggio vocale di conferma più naturale
+                    user_display_name = self.user_manager.get_user_display_name(user_id)
                     
-                    # Genera e invia audio di conferma
+                    # Messaggi vocali naturali e accompagnatori
+                    natural_voice_messages = [
+                        f"Perfetto {user_display_name}! Tutto confermato. Ti aspetto, sarà un piacere vederti!",
+                        f"Ottimo! Il tuo appuntamento è a posto. Ci vediamo presto, {user_display_name}!",
+                        f"Fantastico {user_display_name}! Appuntamento confermato. Non vedo l'ora di incontrarti!",
+                        f"Eccellente! È tutto sistemato. Ti aspetto, {user_display_name}. Ci sentiamo presto!",
+                        f"Perfetto! Appuntamento fissato. Sarà un piacere vederti, {user_display_name}!"
+                    ]
+                    
+                    # Genera e invia audio di conferma naturale
                     try:
-                        clean_text = re.sub(r'[*_`\[\]]', '', message)
-                        clean_text = re.sub(r'#{1,6}\s*', '', clean_text)
-                        audio_data = await self.text_to_speech(clean_text)
+                        voice_message = random.choice(natural_voice_messages)
+                        audio_data = await self.text_to_speech(voice_message)
                         
                         with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_audio:
                             temp_audio.write(audio_data)
