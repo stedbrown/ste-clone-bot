@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 import pytz
 import re
 import json
+import random
+import uuid
 
 from openai import OpenAI
 import requests
@@ -662,6 +664,52 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         ]
         return InlineKeyboardMarkup(keyboard)
 
+    def _generate_ics_file(self, title: str, start_time: datetime, end_time: datetime, description: str = "") -> str:
+        """Genera un file .ics per l'appuntamento"""
+        try:
+            # Genera un UUID unico per l'evento
+            event_uid = str(uuid.uuid4())
+            
+            # Formatta le date in formato UTC per il file .ics
+            start_utc = start_time.astimezone(pytz.UTC)
+            end_utc = end_time.astimezone(pytz.UTC)
+            created_utc = datetime.now(pytz.UTC)
+            
+            # Formato data per .ics (senza trattini e due punti)
+            start_str = start_utc.strftime("%Y%m%dT%H%M%SZ")
+            end_str = end_utc.strftime("%Y%m%dT%H%M%SZ")
+            created_str = created_utc.strftime("%Y%m%dT%H%M%SZ")
+            
+            # Escape caratteri speciali per il formato .ics
+            title_escaped = title.replace(',', '\\,').replace(';', '\\;').replace('\\', '\\\\')
+            description_escaped = description.replace(',', '\\,').replace(';', '\\;').replace('\\', '\\\\')
+            
+            # Contenuto del file .ics
+            ics_content = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Telegram Bot//Appointment//IT
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VEVENT
+UID:{event_uid}
+DTSTART:{start_str}
+DTEND:{end_str}
+DTSTAMP:{created_str}
+CREATED:{created_str}
+LAST-MODIFIED:{created_str}
+SUMMARY:{title_escaped}
+DESCRIPTION:{description_escaped}
+STATUS:CONFIRMED
+TRANSP:OPAQUE
+END:VEVENT
+END:VCALENDAR"""
+
+            return ics_content
+            
+        except Exception as e:
+            logger.error(f"Errore nella generazione del file .ics: {e}")
+            return None
+
     async def _process_booking_confirmation(self, query, flow: dict, confirmed: bool):
         """Processa la conferma della prenotazione"""
         user_id = query.from_user.id
@@ -678,12 +726,18 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
                 
                 if event:
                     formatted_time = flow["data"]["datetime"].strftime("%d/%m/%Y alle %H:%M")
-                    message = (
-                        f"✅ **Appuntamento confermato!**\n\n"
-                        f"📅 {formatted_time}\n"
-                        f"📝 {flow['data']['title']}\n\n"
-                        f"Ti invierò un promemoria prima dell'appuntamento. 🔔"
-                    )
+                    
+                    # Messaggi più umani e personalizzati
+                    messages_variants = [
+                        f"🎉 **Perfetto! Tutto sistemato!**\n\n📅 Ci vediamo {formatted_time}\n📝 {flow['data']['title']}\n\n💡 Ora ti mando un file per salvarlo nel tuo calendario personale!\nTi farò anche un promemoria prima dell'appuntamento. A presto! 😊",
+                        
+                        f"✨ **Fantastico! Appuntamento prenotato!**\n\n📅 Ti aspetto {formatted_time}\n📝 {flow['data']['title']}\n\n📱 Ti invio subito un file per aggiungerlo al tuo telefono!\nNon preoccuparti, ti ricorderò io prima dell'appuntamento! 👍",
+                        
+                        f"🚀 **Eccellente! È fatta!**\n\n📅 Appuntamento fissato per {formatted_time}\n📝 {flow['data']['title']}\n\n💾 Riceverai un file da salvare nel tuo calendario!\nE ovviamente ti avviserò prima che inizi. Ci sentiamo presto! 🎯"
+                    ]
+                    
+                    # Scegli un messaggio casuale per variare
+                    message = random.choice(messages_variants)
                     
                     # Rimuovi i bottoni e aggiorna il messaggio
                     await query.edit_message_text(message, parse_mode='Markdown')
@@ -711,6 +765,42 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
                             os.unlink(temp_audio_path)
                     except Exception as e:
                         logger.error(f"Errore nell'invio dell'audio di conferma: {e}")
+                    
+                    # Genera e invia file .ics per il calendario
+                    try:
+                        ics_content = self._generate_ics_file(
+                            title=flow['data']['title'],
+                            start_time=flow['data']['datetime'],
+                            end_time=flow['data']['end_time'],
+                            description=f"Appuntamento prenotato tramite bot Telegram"
+                        )
+                        
+                        if ics_content:
+                            # Crea nome file con data e titolo
+                            date_str = flow['data']['datetime'].strftime("%Y%m%d_%H%M")
+                            title_clean = re.sub(r'[^a-zA-Z0-9\s]', '', flow['data']['title'])[:20]
+                            filename = f"appuntamento_{date_str}_{title_clean}.ics"
+                            
+                            # Invia file come documento
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.ics', delete=False, encoding='utf-8') as temp_ics:
+                                temp_ics.write(ics_content)
+                                temp_ics_path = temp_ics.name
+                            
+                            try:
+                                with open(temp_ics_path, 'rb') as ics_file:
+                                    await query.message.chat.send_document(
+                                        document=ics_file,
+                                        filename=filename,
+                                        caption="📅 **File Calendario**\n\nScarica e apri questo file per aggiungere l'appuntamento al tuo calendario!\n\n📱 *Tocca il file → Apri con → Calendario*"
+                                    )
+                                logger.info(f"File .ics inviato per appuntamento: {formatted_time}")
+                            finally:
+                                os.unlink(temp_ics_path)
+                        else:
+                            logger.warning("Impossibile generare file .ics")
+                    except Exception as e:
+                        logger.error(f"Errore nell'invio del file .ics: {e}")
+                        # Non bloccare il flusso se il file .ics fallisce
                     
                     logger.info(f"Appuntamento creato per {query.from_user.first_name}: {formatted_time}")
                 else:
@@ -990,13 +1080,48 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
                 
                 if event:
                     formatted_time = flow["data"]["datetime"].strftime("%d/%m/%Y alle %H:%M")
-                    message = (
-                        f"✅ **Appuntamento confermato!**\n\n"
-                        f"📅 {formatted_time}\n"
-                        f"📝 {flow['data']['title']}\n\n"
-                        f"Ti invierò un promemoria prima dell'appuntamento. 🔔"
-                    )
-                    await update.message.reply_text(message)
+                    
+                    # Messaggi più umani e personalizzati (stessa logica dell'altra funzione)
+                    messages_variants = [
+                        f"🎉 **Perfetto! Tutto sistemato!**\n\n📅 Ci vediamo {formatted_time}\n📝 {flow['data']['title']}\n\n💡 Ora ti mando un file per salvarlo nel tuo calendario personale!\nTi farò anche un promemoria prima dell'appuntamento. A presto! 😊",
+                        
+                        f"✨ **Fantastico! Appuntamento prenotato!**\n\n📅 Ti aspetto {formatted_time}\n📝 {flow['data']['title']}\n\n📱 Ti invio subito un file per aggiungerlo al tuo telefono!\nNon preoccuparti, ti ricorderò io prima dell'appuntamento! 👍",
+                        
+                        f"🚀 **Eccellente! È fatta!**\n\n📅 Appuntamento fissato per {formatted_time}\n📝 {flow['data']['title']}\n\n💾 Riceverai un file da salvare nel tuo calendario!\nE ovviamente ti avviserò prima che inizi. Ci sentiamo presto! 🎯"
+                    ]
+                    
+                    message = random.choice(messages_variants)
+                    await self.send_text_and_voice(update, message)
+                    
+                    # Genera e invia file .ics
+                    try:
+                        ics_content = self._generate_ics_file(
+                            title=flow['data']['title'],
+                            start_time=flow['data']['datetime'],
+                            end_time=flow['data']['end_time'],
+                            description=f"Appuntamento prenotato tramite bot Telegram"
+                        )
+                        
+                        if ics_content:
+                            date_str = flow['data']['datetime'].strftime("%Y%m%d_%H%M")
+                            title_clean = re.sub(r'[^a-zA-Z0-9\s]', '', flow['data']['title'])[:20]
+                            filename = f"appuntamento_{date_str}_{title_clean}.ics"
+                            
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.ics', delete=False, encoding='utf-8') as temp_ics:
+                                temp_ics.write(ics_content)
+                                temp_ics_path = temp_ics.name
+                            
+                            try:
+                                with open(temp_ics_path, 'rb') as ics_file:
+                                    await update.message.reply_document(
+                                        document=ics_file,
+                                        filename=filename,
+                                        caption="📅 **File Calendario**\n\nScarica e apri questo file per aggiungere l'appuntamento al tuo calendario!\n\n📱 *Tocca il file → Apri con → Calendario*"
+                                    )
+                            finally:
+                                os.unlink(temp_ics_path)
+                    except Exception as e:
+                        logger.error(f"Errore nell'invio del file .ics (testo): {e}")
                 else:
                     await update.message.reply_text("❌ Errore nella creazione dell'appuntamento.")
                 
