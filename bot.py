@@ -12,8 +12,8 @@ from openai import OpenAI
 import requests
 from pydub import AudioSegment
 from pydub.utils import which
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from elevenlabs.client import ElevenLabs
 
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY, ELEVENLABS_API_KEY, VOICE_ID
@@ -130,6 +130,9 @@ class TelegramBot:
         # Gestore per messaggi di testo
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message))
         
+        # Gestore per callback dei bottoni inline
+        self.application.add_handler(CallbackQueryHandler(self.handle_inline_callback))
+        
         # Gestore degli errori
         self.application.add_error_handler(self.error_handler)
     
@@ -189,14 +192,15 @@ class TelegramBot:
             "🎤 Rispondere ai tuoi messaggi vocali\n"
             "📅 Gestire i tuoi appuntamenti su Google Calendar\n\n"
             "**Comandi disponibili:**\n"
-            "📅 /prenota - Prenota un nuovo appuntamento\n"
+            "📅 /prenota - Prenota un nuovo appuntamento (con bottoni!)\n"
             "📋 /appuntamenti - Visualizza i prossimi appuntamenti\n"
             "❌ /cancella - Annulla prenotazione in corso\n"
             "🔄 /start - Ricomincia da capo\n\n"
             "Puoi anche dire semplicemente 'voglio prenotare un appuntamento per domani alle 15' e io ti aiuterò!\n\n"
-            "Ti risponderò sempre con un messaggio vocale! 🔊"
+            "📱 **NOVITÀ:** Ora uso bottoni interattivi per rendere tutto più veloce!\n"
+            "🔊 Ti risponderò sempre con **testo + audio**! 🎧"
         )
-        await update.message.reply_text(welcome_message)
+        await self.send_text_and_voice(update, welcome_message)
     
     async def clear_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /clear per cancellare la cronologia"""
@@ -407,6 +411,66 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
             logger.error(f"Errore nella generazione della risposta: {e}")
             return "Mi dispiace, si è verificato un errore nel generare la risposta."
     
+    async def send_text_and_voice(self, update: Update, text: str, keyboard: InlineKeyboardMarkup = None, edit_message_id: int = None):
+        """Invia sia messaggio di testo che vocale, opzionalmente con bottoni inline"""
+        try:
+            user_id = update.effective_user.id
+            
+            # Invia prima il messaggio di testo con bottoni (se presenti)
+            if edit_message_id:
+                # Modifica un messaggio esistente
+                text_message = await update.effective_chat.edit_message_text(
+                    text=text,
+                    message_id=edit_message_id,
+                    reply_markup=keyboard,
+                    parse_mode='Markdown'
+                )
+            else:
+                # Invia nuovo messaggio
+                text_message = await update.effective_chat.send_message(
+                    text=text,
+                    reply_markup=keyboard,
+                    parse_mode='Markdown'
+                )
+            
+            # Genera e invia anche l'audio
+            try:
+                # Rimuovi markdown dal testo per l'audio (ElevenLabs non lo gestisce bene)
+                clean_text = re.sub(r'[*_`\[\]]', '', text)
+                clean_text = re.sub(r'#{1,6}\s*', '', clean_text)  # Rimuovi headers markdown
+                
+                audio_data = await self.text_to_speech(clean_text)
+                
+                # Invia il messaggio vocale
+                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_audio:
+                    temp_audio.write(audio_data)
+                    temp_audio_path = temp_audio.name
+                
+                try:
+                    with open(temp_audio_path, 'rb') as audio_file:
+                        await update.effective_chat.send_voice(audio_file)
+                    logger.info("Messaggio testo + vocale inviato con successo")
+                finally:
+                    # Pulisce il file temporaneo
+                    os.unlink(temp_audio_path)
+                    
+            except Exception as e:
+                logger.error(f"Errore nell'invio dell'audio: {e}")
+                # Se l'audio fallisce, almeno il testo è stato inviato
+                
+            return text_message
+            
+        except Exception as e:
+            logger.error(f"Errore nell'invio di testo e voce: {e}")
+            # Fallback: invia solo testo normale
+            if edit_message_id:
+                return await update.effective_chat.edit_message_text(
+                    text=f"❌ {text}",
+                    message_id=edit_message_id
+                )
+            else:
+                return await update.effective_chat.send_message(text=f"❌ {text}")
+
     async def text_to_speech(self, text: str) -> bytes:
         """Converte testo in audio usando ElevenLabs"""
         try:
@@ -470,6 +534,198 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
             logger.error(f"Errore nell'elaborazione e risposta: {e}")
             await status_message.edit_text("❌ Si è verificato un errore nel generare la risposta vocale.")
     
+    async def handle_inline_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce i callback dei bottoni inline"""
+        try:
+            query = update.callback_query
+            await query.answer()  # Conferma la ricezione del callback
+            
+            user_id = query.from_user.id
+            callback_data = query.data
+            
+            logger.info(f"Callback ricevuto da {query.from_user.first_name}: {callback_data}")
+            
+            # Gestisce i diversi tipi di callback
+            if callback_data.startswith("confirm_"):
+                await self._handle_confirmation_callback(query, callback_data)
+            elif callback_data.startswith("time_"):
+                await self._handle_time_selection_callback(query, callback_data)
+            elif callback_data.startswith("cancel_"):
+                await self._handle_cancel_callback(query, callback_data)
+            else:
+                await query.edit_message_text("❌ Azione non riconosciuta.")
+                
+        except Exception as e:
+            logger.error(f"Errore nella gestione del callback: {e}")
+            try:
+                await query.edit_message_text("❌ Si è verificato un errore.")
+            except:
+                pass
+
+    async def _handle_confirmation_callback(self, query, callback_data):
+        """Gestisce le conferme yes/no"""
+        user_id = query.from_user.id
+        action = callback_data.split("_")[1]  # confirm_yes o confirm_no
+        
+        if user_id not in self.booking_flows:
+            await query.edit_message_text("❌ Sessione di prenotazione scaduta. Riprova con /prenota")
+            return
+            
+        flow = self.booking_flows[user_id]
+        
+        if action == "yes":
+            # Conferma prenotazione
+            if flow["step"] == "waiting_confirmation":
+                await self._process_booking_confirmation(query, flow, True)
+        elif action == "no":
+            # Annulla prenotazione
+            await query.edit_message_text("❌ Prenotazione annullata. Usa /prenota per ricominciare.")
+            del self.booking_flows[user_id]
+
+    async def _handle_time_selection_callback(self, query, callback_data):
+        """Gestisce la selezione rapida degli orari"""
+        user_id = query.from_user.id
+        time_slot = callback_data.replace("time_", "")
+        
+        if user_id not in self.booking_flows:
+            await query.edit_message_text("❌ Sessione di prenotazione scaduta. Riprova con /prenota")
+            return
+            
+        # Simula input di testo per l'orario selezionato
+        fake_update = type('obj', (object,), {
+            'effective_user': query.from_user,
+            'effective_chat': query.message.chat,
+            'message': query.message
+        })()
+        
+        await self._handle_datetime_input(fake_update, time_slot, self.booking_flows[user_id])
+
+    async def _handle_cancel_callback(self, query, callback_data):
+        """Gestisce l'annullamento"""
+        user_id = query.from_user.id
+        
+        if user_id in self.booking_flows:
+            del self.booking_flows[user_id]
+            
+        await query.edit_message_text("❌ Operazione annullata.")
+
+    def _create_time_selection_keyboard(self):
+        """Crea una tastiera inline con orari comuni"""
+        # Ottieni data/ora attuale
+        timezone_italy = pytz.timezone('Europe/Rome')
+        now = datetime.now(timezone_italy)
+        
+        # Calcola domani
+        tomorrow = now + timedelta(days=1)
+        
+        keyboard = []
+        
+        # Riga 1: Oggi (se ancora in orario utile)
+        if now.hour < 18:  # Solo se non è troppo tardi
+            keyboard.append([
+                InlineKeyboardButton("🌅 Oggi 9:00", callback_data="time_oggi alle 9:00"),
+                InlineKeyboardButton("🌞 Oggi 14:00", callback_data="time_oggi alle 14:00"),
+                InlineKeyboardButton("🌆 Oggi 17:00", callback_data="time_oggi alle 17:00")
+            ])
+        
+        # Riga 2: Domani
+        keyboard.append([
+            InlineKeyboardButton("🌅 Domani 9:00", callback_data="time_domani alle 9:00"),
+            InlineKeyboardButton("🌞 Domani 14:00", callback_data="time_domani alle 14:00"),
+            InlineKeyboardButton("🌆 Domani 17:00", callback_data="time_domani alle 17:00")
+        ])
+        
+        # Riga 3: Settimana prossima
+        giorni_settimana = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì']
+        next_monday = now + timedelta(days=(7 - now.weekday()))
+        
+        keyboard.append([
+            InlineKeyboardButton("📅 Lun 10:00", callback_data="time_lunedì prossimo alle 10:00"),
+            InlineKeyboardButton("📅 Mer 15:00", callback_data="time_mercoledì prossimo alle 15:00"),
+            InlineKeyboardButton("📅 Ven 16:00", callback_data="time_venerdì prossimo alle 16:00")
+        ])
+        
+        # Riga 4: Annulla
+        keyboard.append([
+            InlineKeyboardButton("❌ Annulla", callback_data="cancel_booking")
+        ])
+        
+        return InlineKeyboardMarkup(keyboard)
+
+    def _create_confirmation_keyboard(self):
+        """Crea tastiera per conferma prenotazione"""
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Confermo", callback_data="confirm_yes"),
+                InlineKeyboardButton("❌ Annulla", callback_data="confirm_no")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    async def _process_booking_confirmation(self, query, flow: dict, confirmed: bool):
+        """Processa la conferma della prenotazione"""
+        user_id = query.from_user.id
+        
+        if confirmed:
+            # Crea l'appuntamento
+            try:
+                event = self.calendar_manager.create_appointment(
+                    title=flow["data"]["title"],
+                    start_time=flow["data"]["datetime"],
+                    end_time=flow["data"]["end_time"],
+                    description=f"Appuntamento prenotato tramite bot Telegram"
+                )
+                
+                if event:
+                    formatted_time = flow["data"]["datetime"].strftime("%d/%m/%Y alle %H:%M")
+                    message = (
+                        f"✅ **Appuntamento confermato!**\n\n"
+                        f"📅 {formatted_time}\n"
+                        f"📝 {flow['data']['title']}\n\n"
+                        f"Ti invierò un promemoria prima dell'appuntamento. 🔔"
+                    )
+                    
+                    # Rimuovi i bottoni e aggiorna il messaggio
+                    await query.edit_message_text(message, parse_mode='Markdown')
+                    
+                    # Invia anche il messaggio vocale di conferma
+                    fake_update = type('obj', (object,), {
+                        'effective_chat': query.message.chat,
+                        'effective_user': query.from_user
+                    })()
+                    
+                    # Genera e invia audio di conferma
+                    try:
+                        clean_text = re.sub(r'[*_`\[\]]', '', message)
+                        clean_text = re.sub(r'#{1,6}\s*', '', clean_text)
+                        audio_data = await self.text_to_speech(clean_text)
+                        
+                        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_audio:
+                            temp_audio.write(audio_data)
+                            temp_audio_path = temp_audio.name
+                        
+                        try:
+                            with open(temp_audio_path, 'rb') as audio_file:
+                                await query.message.chat.send_voice(audio_file)
+                        finally:
+                            os.unlink(temp_audio_path)
+                    except Exception as e:
+                        logger.error(f"Errore nell'invio dell'audio di conferma: {e}")
+                    
+                    logger.info(f"Appuntamento creato per {query.from_user.first_name}: {formatted_time}")
+                else:
+                    await query.edit_message_text("❌ Errore nella creazione dell'appuntamento. Riprova.")
+                    
+            except Exception as e:
+                logger.error(f"Errore nella creazione dell'appuntamento: {e}")
+                await query.edit_message_text("❌ Si è verificato un errore. Riprova più tardi.")
+        else:
+            await query.edit_message_text("❌ Prenotazione annullata.")
+        
+        # Pulisci il flusso di prenotazione
+        if user_id in self.booking_flows:
+            del self.booking_flows[user_id]
+
     # === GESTIONE CALENDARIO ===
     
     def detect_booking_intent(self, text: str) -> bool:
@@ -534,28 +790,33 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
             "data": {}
         }
         
+        # Crea bottoni per orari comuni
+        keyboard = self._create_time_selection_keyboard()
+        
         message = (
             "📅 **Prenotazione Appuntamento**\n\n"
-            "Dimmi quando vuoi prenotare l'appuntamento.\n\n"
-            "Puoi scrivere ad esempio:\n"
+            "Quando vuoi prenotare l'appuntamento?\n\n"
+            "Puoi:\n"
+            "🔸 **Cliccare un orario** qui sotto\n"
+            "🔸 **Scrivere/dire** quando vuoi (es: \"domani alle 15:00\")\n\n"
+            "Esempi:\n"
             "• Domani alle 15:00\n"
             "• Lunedì alle 10:30\n"
             "• 25/12 alle 14:00\n"
-            "• Oggi pomeriggio\n\n"
-            "Scrivi /cancella per annullare."
+            "• Oggi pomeriggio"
         )
         
-        await update.message.reply_text(message)
+        await self.send_text_and_voice(update, message, keyboard)
     
     async def appuntamenti_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /appuntamenti"""
         try:
             events = self.calendar_manager.get_upcoming_appointments(7)
             message = self.calendar_manager.format_appointment_list(events)
-            await update.message.reply_text(message)
+            await self.send_text_and_voice(update, message)
         except Exception as e:
             logger.error(f"Errore nel recupero appuntamenti: {e}")
-            await update.message.reply_text("❌ Errore nel recupero degli appuntamenti.")
+            await self.send_text_and_voice(update, "❌ Errore nel recupero degli appuntamenti.")
     
     async def cancella_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /cancella per annullare prenotazioni in corso"""
@@ -697,15 +958,19 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         formatted_start = start_time.strftime("%d/%m/%Y alle %H:%M")
         formatted_end = end_time.strftime("%H:%M")
         
+        # Crea bottoni di conferma
+        keyboard = self._create_confirmation_keyboard()
+        
         message = (
             f"📋 **Riepilogo Appuntamento**\n\n"
             f"📅 **Data:** {formatted_start}\n"
             f"⏰ **Fine:** {formatted_end}\n"
             f"📝 **Oggetto:** {text}\n\n"
-            f"Confermi? Scrivi 'sì' per prenotare o 'no' per annullare."
+            f"🔸 **Clicca un bottone** per confermare o annullare\n"
+            f"🔸 **Oppure scrivi/di' 'sì'** per confermare"
         )
         
-        await update.message.reply_text(message)
+        await self.send_text_and_voice(update, message, keyboard)
     
     async def _handle_confirmation_input(self, update: Update, text: str, flow: dict):
         """Gestisce la conferma dell'appuntamento"""
