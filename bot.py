@@ -216,6 +216,7 @@ class TelegramBot:
         """Gestisce i messaggi vocali"""
         status_message = None
         try:
+            user_id = update.effective_user.id
             logger.info(f"Ricevuto messaggio vocale da {update.effective_user.first_name}")
             
             # Invia messaggio di stato
@@ -241,6 +242,23 @@ class TelegramBot:
                     return
                 
                 logger.info(f"Testo trascritto: {text}")
+                
+                # Elimina il messaggio di stato temporaneamente per gestire il flusso di prenotazione
+                await status_message.delete()
+                
+                # Controlla se l'utente è in un flusso di prenotazione
+                if user_id in self.booking_flows:
+                    await self.handle_booking_flow(update, text)
+                    return
+                
+                # Controlla se il messaggio riguarda prenotazioni (parsing naturale)
+                booking_intent = self.detect_booking_intent(text)
+                if booking_intent:
+                    await self.start_booking_flow(update, text)
+                    return
+                
+                # Invia nuovo messaggio di stato per la risposta normale
+                status_message = await update.message.reply_text("💭 Sto pensando alla risposta...")
                 
                 # Genera risposta e invia audio
                 await self.process_and_respond(text, update, status_message)
@@ -339,11 +357,12 @@ INFORMAZIONI TEMPORALI ATTUALI:
 - {saluto_contesto}
 - Giorno della settimana: {giorno_settimana}
 
-GESTIONE APPUNTAMENTI:
-Se l'utente menziona appuntamenti, prenotazioni o vuole organizzare incontri, rispondi in modo naturale ma ricorda che il sistema ha funzionalità specifiche per questo:
-- Possono usare /prenota per prenotare
-- Possono dire naturalmente "voglio prenotare per domani alle 15" 
-- Possono vedere gli appuntamenti con /appuntamenti
+IMPORTANTE: Il sistema può rilevare automaticamente quando l'utente vuole prenotare appuntamenti dai suoi messaggi naturali (sia scritti che vocali). Non devi suggerire comandi specifici, rispondi naturalmente. Il sistema gestirà automaticamente:
+- Rilevamento di intenzioni di prenotazione da messaggi naturali
+- Avvio automatico del processo di prenotazione
+- Gestione del calendario Google integrato
+
+Se parlano di appuntamenti, tempi, incontri, o vogliono organizzare qualcosa, rispondi in modo naturale e lascia che il sistema rilevi l'intenzione automaticamente.
 
 Usa queste informazioni quando appropriate per dare contesto temporale alle tue risposte. Se ti chiedono che giorno è, che ora è, ecc., rispondi naturalmente basandoti su queste informazioni."""
 
@@ -456,13 +475,54 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
     def detect_booking_intent(self, text: str) -> bool:
         """Rileva se il messaggio contiene un'intenzione di prenotare un appuntamento"""
         keywords_booking = [
-            'prenota', 'appuntamento', 'prenotare', 'fissare', 'fissa',
-            'meeting', 'incontro', 'riunione', 'disponibilità', 'libero',
-            'quando sei libero', 'quando puoi', 'possiamo vederci'
+            # Parole dirette per prenotazione
+            'prenota', 'appuntamento', 'prenotare', 'prenotazione', 'fissare', 'fissa',
+            'meeting', 'incontro', 'riunione', 'disponibilità', 'libero', 'impegnato',
+            
+            # Espressioni temporali che indicano voglia di organizzare
+            'quando sei libero', 'quando puoi', 'possiamo vederci', 'ci vediamo',
+            'voglio vederti', 'dobbiamo incontrarci', 'organizziamo', 'pianifichiamo',
+            
+            # Riferimenti temporali specifici che spesso accompagnano prenotazioni
+            'domani alle', 'dopodomani alle', 'lunedì alle', 'martedì alle', 
+            'mercoledì alle', 'giovedì alle', 'venerdì alle', 'sabato alle', 'domenica alle',
+            'settimana prossima', 'la prossima settimana', 'questo weekend',
+            
+            # Verbi di azione per organizzare
+            'voglio prenotare', 'devo prenotare', 'vorrei prenotare', 'posso prenotare',
+            'ho bisogno di', 'serve un appuntamento', 'mi serve', 
+            
+            # Altri indicatori
+            'calendario', 'agenda', 'programmare', 'slot', 'orario',
+            'consultazione', 'visita', 'sessione'
+        ]
+        
+        # Frasi che spesso indicano prenotazione
+        booking_phrases = [
+            'voglio un appuntamento',
+            'ho bisogno di un appuntamento', 
+            'possiamo fissare',
+            'vorrei fissare',
+            'devo fissare',
+            'prendiamo un appuntamento',
+            'fissiamo un incontro',
+            'organizziamo un meeting',
+            'quando ci possiamo vedere',
+            'quando possiamo vederci',
+            'sei libero',
+            'hai tempo',
+            'possiamo incontrarci'
         ]
         
         text_lower = text.lower()
-        return any(keyword in text_lower for keyword in keywords_booking)
+        
+        # Controlla parole chiave
+        keyword_match = any(keyword in text_lower for keyword in keywords_booking)
+        
+        # Controlla frasi complete
+        phrase_match = any(phrase in text_lower for phrase in booking_phrases)
+        
+        return keyword_match or phrase_match
     
     async def prenota_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /prenota"""
