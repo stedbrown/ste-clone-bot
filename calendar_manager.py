@@ -24,8 +24,15 @@ class CalendarManager:
     def setup_service(self):
         """Inizializza il servizio Google Calendar"""
         try:
+            logger.info("Inizializzazione servizio Google Calendar...")
+            
+            if not GOOGLE_CREDENTIALS_JSON:
+                raise ValueError("GOOGLE_CREDENTIALS_JSON non configurata")
+            
             # Crea file temporaneo per le credenziali
             credentials_data = json.loads(GOOGLE_CREDENTIALS_JSON)
+            logger.info(f"Credenziali caricate per project_id: {credentials_data.get('project_id')}")
+            logger.info(f"Client email: {credentials_data.get('client_email')}")
             
             # Crea un file temporaneo per le credenziali
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -43,11 +50,18 @@ class CalendarManager:
             # Crea il servizio
             self.service = build('calendar', 'v3', credentials=credentials)
             
+            # Test della connessione
+            calendar_list = self.service.calendarList().list().execute()
+            logger.info(f"Calendari accessibili: {len(calendar_list.get('items', []))}")
+            
             # Pulisci il file temporaneo
             os.unlink(credentials_file)
             
-            logger.info("Servizio Google Calendar inizializzato con successo")
+            logger.info(f"Servizio Google Calendar inizializzato con successo. Calendar ID: {self.calendar_id}")
             
+        except json.JSONDecodeError as e:
+            logger.error(f"Errore nel parsing delle credenziali JSON: {e}")
+            self.service = None
         except Exception as e:
             logger.error(f"Errore nell'inizializzazione del servizio Google Calendar: {e}")
             self.service = None
@@ -172,6 +186,10 @@ class CalendarManager:
             return None
         
         try:
+            logger.info(f"Tentativo di creare appuntamento: {title}")
+            logger.info(f"Start time: {start_time}")
+            logger.info(f"Calendar ID: {self.calendar_id}")
+            
             # Converti in UTC per l'API
             start_utc = start_time.astimezone(pytz.UTC)
             end_utc = end_time.astimezone(pytz.UTC)
@@ -196,12 +214,34 @@ class CalendarManager:
                 },
             }
             
+            logger.info(f"Dati evento da creare: {event}")
+            
+            # Prima verifica se il calendario esiste e abbiamo accesso
+            try:
+                calendar_info = self.service.calendars().get(calendarId=self.calendar_id).execute()
+                logger.info(f"Calendario trovato: {calendar_info.get('summary')}")
+            except HttpError as cal_error:
+                logger.error(f"Errore accesso calendario {self.calendar_id}: {cal_error}")
+                if cal_error.resp.status == 404:
+                    logger.error("Calendario non trovato! Verifica CALENDAR_ID e permessi del service account")
+                return None
+            
+            # Crea l'evento
             event = self.service.events().insert(calendarId=self.calendar_id, body=event).execute()
-            logger.info(f"Appuntamento creato: {event.get('htmlLink')}")
+            logger.info(f"✅ Appuntamento creato con successo!")
+            logger.info(f"Event ID: {event.get('id')}")
+            logger.info(f"Link: {event.get('htmlLink')}")
             return event
             
         except HttpError as e:
-            logger.error(f"Errore nella creazione dell'appuntamento: {e}")
+            logger.error(f"❌ Errore HTTP nella creazione dell'appuntamento: {e}")
+            logger.error(f"Status: {e.resp.status}")
+            logger.error(f"Reason: {e.resp.reason}")
+            if e.resp.status == 403:
+                logger.error("Errore 403: Il service account non ha i permessi necessari sul calendario")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Errore generico nella creazione dell'appuntamento: {e}")
             return None
     
     def get_upcoming_appointments(self, days: int = 7) -> List[Dict]:
