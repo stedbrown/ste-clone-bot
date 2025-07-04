@@ -26,6 +26,16 @@ from config import TELEGRAM_TOKEN, OPENAI_API_KEY, ELEVENLABS_API_KEY, VOICE_ID
 from calendar_manager import CalendarManager
 from user_manager import UserManager
 
+# ═══════════════════════════════════════════════════════════════
+# 🏢 INFORMAZIONI AZIENDA UP! INFORMATICA
+# ═══════════════════════════════════════════════════════════════
+COMPANY_NAME = "UP! Informatica"
+COMPANY_EMAIL = "info@upinformatica.it"
+COMPANY_PHONE = "+39 XXX XXX XXXX"  # Inserire numero reale
+COMPANY_WEBSITE = "www.upinformatica.it"
+COMPANY_ADDRESS = "Via Example 123, 00000 Città (Provincia)"  # Inserire indirizzo reale
+COMPANY_DESCRIPTION = "Servizi informatici professionali e soluzioni digitali innovative"
+
 # Configurazione per Railway
 PORT = int(os.environ.get('PORT', 8000))
 RAILWAY_ENVIRONMENT = os.environ.get('RAILWAY_ENVIRONMENT', 'development')
@@ -131,6 +141,9 @@ class TelegramBot:
         # Gestore per il comando /health (per Railway health check)
         self.application.add_handler(CommandHandler("health", self.health_command))
         
+        # Aggiungi comando di test per estrazione nomi (solo per debug)
+        self.application.add_handler(CommandHandler("test_nome", self.test_nome_command))
+        
         # Gestori per comandi del calendario
         self.application.add_handler(CommandHandler("prenota", self.prenota_command))
         self.application.add_handler(CommandHandler("appuntamenti", self.appuntamenti_command))
@@ -166,6 +179,20 @@ class TelegramBot:
         """Health check endpoint per Railway"""
         await update.message.reply_text("🤖 Bot attivo e funzionante!")
         logger.info("Health check eseguito")
+    
+    async def test_nome_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Comando di test per l'estrazione dei nomi (solo per debug)"""
+        if len(context.args) == 0:
+            await update.message.reply_text("Uso: /test_nome <testo>\nEsempio: /test_nome mi chiamo Stefano")
+            return
+        
+        test_text = " ".join(context.args)
+        extracted = await self.extract_name_from_text(test_text)
+        
+        if extracted:
+            await update.message.reply_text(f"✅ Estratto: **{extracted}**\nDa: _{test_text}_")
+        else:
+            await update.message.reply_text(f"❌ Nessun nome estratto da: _{test_text}_")
     
     def get_user_history(self, user_id: int) -> list:
         """Ottieni la cronologia delle conversazioni per un utente"""
@@ -848,22 +875,24 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
             created_str = created_utc.strftime("%Y%m%dT%H%M%SZ")
             
             # Crea descrizione completa per l'utente con informazioni azienda
-            user_description = f"""Appuntamento con UP! Informatica
+            user_description = f"""Appuntamento con {COMPANY_NAME}
 
 {description}
 
 ═══════════════════════════════════════
-🏢 UP! INFORMATICA
-📧 Email: info@upinformatica.it  
-📱 Tel: [Inserire numero]
-🌐 Web: www.upinformatica.it
-📍 Indirizzo: [Inserire indirizzo azienda]
+🏢 {COMPANY_NAME.upper()}
+📧 Email: {COMPANY_EMAIL}
+📱 Tel: {COMPANY_PHONE}
+🌐 Web: {COMPANY_WEBSITE}
+📍 Indirizzo: {COMPANY_ADDRESS}
 ═══════════════════════════════════════
+
+{COMPANY_DESCRIPTION}
 
 Ricorda di portare con te eventuali documenti necessari.
 Per modifiche o cancellazioni contattaci in anticipo.
 
-Grazie per aver scelto UP! Informatica! 🚀"""
+Grazie per aver scelto {COMPANY_NAME}! 🚀"""
             
             # Escape caratteri speciali per il formato .ics
             title_escaped = title.replace(',', '\\,').replace(';', '\\;').replace('\\', '\\\\')
@@ -872,11 +901,11 @@ Grazie per aver scelto UP! Informatica! 🚀"""
             # Contenuto del file .ics
             ics_content = f"""BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//UP! Informatica//Appointment Bot//IT
+PRODID:-//{COMPANY_NAME}//Appointment Bot//IT
 CALSCALE:GREGORIAN
 METHOD:PUBLISH
-X-WR-CALNAME:Appuntamenti UP! Informatica
-X-WR-CALDESC:Calendario appuntamenti UP! Informatica
+X-WR-CALNAME:Appuntamenti {COMPANY_NAME}
+X-WR-CALDESC:Calendario appuntamenti {COMPANY_NAME}
 BEGIN:VEVENT
 UID:{event_uid}
 DTSTART:{start_str}
@@ -886,7 +915,7 @@ CREATED:{created_str}
 LAST-MODIFIED:{created_str}
 SUMMARY:{title_escaped}
 DESCRIPTION:{description_escaped}
-ORGANIZER;CN=UP! Informatica:MAILTO:info@upinformatica.it
+ORGANIZER;CN={COMPANY_NAME}:MAILTO:{COMPANY_EMAIL}
 STATUS:CONFIRMED
 TRANSP:OPAQUE
 BEGIN:VALARM
@@ -1002,7 +1031,7 @@ END:VCALENDAR"""
                                     await query.message.chat.send_document(
                                         document=ics_file,
                                         filename=filename,
-                                        caption="📅 **File Calendario**\n\nScarica e apri questo file per aggiungere l'appuntamento al tuo calendario!\n\n📱 *Tocca il file → Apri con → Calendario*"
+                                        caption=f"📅 **File Calendario {COMPANY_NAME}**\n\n✅ Il tuo appuntamento è confermato!\n\n📱 **Scarica e apri questo file** per aggiungerlo al tuo calendario personale\n\n💡 *Tocca il file → Apri con → Calendario*\n\n🔔 Include promemoria automatici!\n🏢 Con tutti i contatti {COMPANY_NAME}"
                                     )
                                 logger.info(f"File .ics inviato per appuntamento: {formatted_time}")
                             finally:
