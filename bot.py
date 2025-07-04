@@ -218,7 +218,7 @@ class TelegramBot:
             del self.conversation_history[user_id]
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Gestisce il comando /start"""
+        """Gestisce il comando /start con bottoni interattivi"""
         user_id = update.effective_user.id
         user_name = update.effective_user.first_name
         
@@ -226,36 +226,75 @@ class TelegramBot:
         self.clear_user_history(user_id)
         
         # Controlla se l'utente è già registrato
-        if not self.user_manager.is_user_registered(user_id):
-            await self.start_registration_flow(update)
-            return
+        if self.user_manager.is_user_registered(user_id):
+            await self.show_registered_user_welcome(update)
+        else:
+            await self.show_new_user_welcome(update)
+
+    async def show_new_user_welcome(self, update: Update):
+        """Mostra il benvenuto per utenti NON registrati con bottoni"""
+        user_name = update.effective_user.first_name
         
-        # Utente già registrato - mostra messaggio di benvenuto personalizzato
+        # Crea bottoni di benvenuto
+        keyboard = [
+            [InlineKeyboardButton("🚀 Inizia Registrazione", callback_data="start_registration")],
+            [InlineKeyboardButton("ℹ️ Informazioni su UP! Informatica", callback_data="show_company_info")],
+            [InlineKeyboardButton("❓ Aiuto e Comandi", callback_data="show_help")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        welcome_message = (
+            f"👋 **Benvenuto {user_name}!** 🎉\n\n"
+            f"🏢 Sono l'assistente virtuale di **{COMPANY_NAME}**\n\n"
+            "📅 **Posso aiutarti a:**\n"
+            "• Prenotare appuntamenti facilmente\n"
+            "• Gestire il tuo calendario personale\n"
+            "• Rispondere alle tue domande\n"
+            "• Inviarti promemoria automatici\n\n"
+            "🔒 **Privacy garantita:** Solo tu puoi vedere i tuoi appuntamenti\n"
+            "🎤 **Comodo:** Puoi scrivermi o inviarmi messaggi vocali\n"
+            "📱 **Moderno:** Uso bottoni interattivi per tutto!\n\n"
+            "⚡ **Per iniziare, devo registrare alcune tue informazioni di base.**\n\n"
+            "👇 **Scegli cosa vuoi fare:**"
+        )
+        
+        await self.send_text_and_voice(update, welcome_message, reply_markup)
+
+    async def show_registered_user_welcome(self, update: Update):
+        """Mostra il benvenuto per utenti GIÀ registrati con bottoni rapidi"""
+        user_id = update.effective_user.id
         user_display_name = self.user_manager.get_user_display_name(user_id)
         user_info = self.user_manager.get_user_info(user_id)
         
+        # Crea bottoni di azione rapida
+        keyboard = [
+            [InlineKeyboardButton("📅 Prenota Appuntamento", callback_data="quick_booking")],
+            [InlineKeyboardButton("📋 I Miei Appuntamenti", callback_data="show_appointments"), 
+             InlineKeyboardButton("👤 Il Mio Profilo", callback_data="show_profile")],
+            [InlineKeyboardButton("❓ Aiuto", callback_data="show_help"),
+             InlineKeyboardButton("📞 Contatti", callback_data="show_contacts")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Statistiche utente
+        total_appointments = user_info.get('total_appointments', 0)
+        last_appointment = user_info.get('last_appointment', 'Mai')
+        
         welcome_message = (
-            f"🤖 Bentornato **{user_display_name}**! 🎉\n\n"
-            f"📊 Hai già **{user_info['total_appointments']} appuntamenti** prenotati\n\n"
-            "**Cosa posso fare per te:**\n"
-            "📝 Rispondere ai tuoi messaggi di testo\n"
-            "🎤 Rispondere ai tuoi messaggi vocali\n"
-            "📅 Gestire i tuoi appuntamenti su Google Calendar\n\n"
-            "**Comandi disponibili:**\n"
-            "📅 /prenota - Prenota un nuovo appuntamento (con bottoni!)\n"
-            "📋 /appuntamenti - Visualizza SOLO i tuoi appuntamenti\n"
-            "👤 /profilo - Visualizza e modifica i tuoi dati\n"
-            "❌ /cancella - Annulla prenotazione in corso\n"
-            "🔄 /start - Ricomincia da capo\n\n"
-            "Puoi anche dire semplicemente 'voglio prenotare un appuntamento per domani alle 15' e io ti aiuterò!\n\n"
-            "📱 **NOVITÀ:** Ora uso bottoni interattivi per rendere tutto più veloce!\n"
-            "🔊 Ti risponderò sempre con **testo + audio**! 🎧\n\n"
-            "🔒 **Privacy:** I tuoi appuntamenti sono completamente privati - solo tu puoi vederli!"
+            f"🤖 **Bentornato {user_display_name}!** 🎉\n\n"
+            f"📊 **Le tue statistiche:**\n"
+            f"• Appuntamenti prenotati: **{total_appointments}**\n"
+            f"• Ultimo appuntamento: **{last_appointment}**\n\n"
+            "🚀 **Cosa vuoi fare oggi?**\n\n"
+            "💡 **Suggerimento:** Puoi anche scrivermi direttamente!\n"
+            "_\"Voglio prenotare per domani alle 15\"_ e io capisco subito! 🎯\n\n"
+            "👇 **Oppure usa i bottoni qui sotto:**"
         )
-        await self.send_text_and_voice(update, welcome_message)
+        
+        await self.send_text_and_voice(update, welcome_message, reply_markup)
 
     async def start_registration_flow(self, update: Update):
-        """Avvia il processo di registrazione per un nuovo utente"""
+        """Avvia il processo di registrazione con interfaccia migliorata"""
         user_id = update.effective_user.id
         user_name = update.effective_user.first_name
         
@@ -267,19 +306,27 @@ class TelegramBot:
             }
         }
         
+        # Crea bottone per annullare registrazione
+        keyboard = [
+            [InlineKeyboardButton("❌ Annulla Registrazione", callback_data="cancel_registration")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         welcome_message = (
-            f"👋 Ciao **{user_name}**! Benvenuto! 🎉\n\n"
-            "Prima di iniziare, ho bisogno di raccogliere alcune informazioni per offrirti un servizio migliore.\n\n"
-            "📝 **Questo mi permetterà di:**\n"
-            "• Identificarti facilmente negli appuntamenti\n"
-            "• Contattarti se necessario\n"
-            "• Offrirti un servizio più personalizzato\n\n"
-            "🔒 **I tuoi dati sono completamente privati e sicuri.**\n\n"
-            "**Iniziamo! Come ti chiami?**\n"
-            "_(Scrivi solo il tuo nome)_"
+            f"📝 **Iniziamo la registrazione!** ✨\n\n"
+            f"Ciao **{user_name}**, ho bisogno di alcune informazioni per offrirti un servizio personalizzato.\n\n"
+            "📋 **Raccoglierò:**\n"
+            "👤 Nome e cognome\n"
+            "📧 Email di contatto\n"
+            "📱 Numero di telefono\n"
+            "🏠 Indirizzo\n\n"
+            "🔒 **I tuoi dati sono al sicuro:** Rispettiamo la privacy al 100%\n"
+            "⚡ **Sarà veloce:** Solo 2 minuti!\n\n"
+            "🎯 **Step 1/5: Come ti chiami?**\n"
+            "_(Scrivi solo il tuo **nome** - es: Marco, Anna, Francesco)_"
         )
         
-        await self.send_text_and_voice(update, welcome_message)
+        await self.send_text_and_voice(update, welcome_message, reply_markup)
 
     async def clear_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /clear per cancellare la cronologia"""
@@ -748,6 +795,25 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
                 await self._handle_time_selection_callback(query, callback_data)
             elif callback_data.startswith("cancel_"):
                 await self._handle_cancel_callback(query, callback_data)
+            # Nuovi callback per il sistema di benvenuto
+            elif callback_data == "start_registration":
+                await self._handle_start_registration_callback(query)
+            elif callback_data == "show_company_info":
+                await self._handle_company_info_callback(query)
+            elif callback_data == "show_help":
+                await self._handle_help_callback(query)
+            elif callback_data == "quick_booking":
+                await self._handle_quick_booking_callback(query)
+            elif callback_data == "show_appointments":
+                await self._handle_show_appointments_callback(query)
+            elif callback_data == "show_profile":
+                await self._handle_show_profile_callback(query)
+            elif callback_data == "show_contacts":
+                await self._handle_show_contacts_callback(query)
+            elif callback_data == "cancel_registration":
+                await self._handle_cancel_registration_callback(query)
+            elif callback_data == "back_to_menu":
+                await self._handle_back_to_menu_callback(query)
             else:
                 await query.edit_message_text("❌ Azione non riconosciuta.")
                 
@@ -804,6 +870,186 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
             del self.booking_flows[user_id]
             
         await query.edit_message_text("❌ Operazione annullata.")
+
+    # === GESTORI CALLBACK NUOVI ===
+
+    async def _handle_start_registration_callback(self, query):
+        """Gestisce l'avvio registrazione dal bottone"""
+        user_id = query.from_user.id
+        
+        # Cancella il messaggio di benvenuto e avvia registrazione
+        await query.message.delete()
+        
+        # Crea un update fittizio per start_registration_flow
+        fake_update = type('obj', (object,), {
+            'effective_user': query.from_user,
+            'effective_chat': query.message.chat,
+            'message': query.message
+        })()
+        
+        await self.start_registration_flow(fake_update)
+
+    async def _handle_company_info_callback(self, query):
+        """Mostra informazioni sull'azienda"""
+        info_message = (
+            f"🏢 **Informazioni su {COMPANY_NAME}**\n\n"
+            f"📧 Email: {COMPANY_EMAIL}\n"
+            f"📱 Telefono: {COMPANY_PHONE}\n"
+            f"🌐 Sito web: {COMPANY_WEBSITE}\n"
+            f"📍 Indirizzo: {COMPANY_ADDRESS}\n\n"
+            f"💼 **Chi siamo:**\n{COMPANY_DESCRIPTION}\n\n"
+            "🤖 **Questo bot ti permette di:**\n"
+            "• Prenotare appuntamenti 24/7\n"
+            "• Gestire il tuo calendario personale\n"
+            "• Ricevere promemoria automatici\n"
+            "• Comunicare con noi facilmente\n\n"
+            "📱 Pronto per iniziare? Torna al menu principale con /start"
+        )
+        await query.edit_message_text(info_message, parse_mode='Markdown')
+
+    async def _handle_help_callback(self, query):
+        """Mostra la guida e i comandi disponibili"""
+        help_message = (
+            "❓ **Guida Bot UP! Informatica**\n\n"
+            "🔥 **Comandi Principali:**\n"
+            "• `/start` - Menu principale\n"
+            "• `/prenota` - Prenota appuntamento\n"
+            "• `/appuntamenti` - I tuoi appuntamenti\n"
+            "• `/profilo` - Il tuo profilo\n"
+            "• `/cancella` - Annulla operazione\n\n"
+            "🎤 **Messaggi Vocali:**\n"
+            "Puoi inviarmi messaggi vocali e io ti risponderò con testo + audio!\n\n"
+            "💬 **Linguaggio Naturale:**\n"
+            "Scrivi normalmente! Es:\n"
+            "_\"Voglio prenotare domani alle 15\"_\n"
+            "_\"Che appuntamenti ho questa settimana?\"_\n\n"
+            "📱 **Bottoni Interattivi:**\n"
+            "Usa i bottoni per azioni rapide!\n\n"
+            "🔒 **Privacy:**\n"
+            "I tuoi dati sono sicuri e privati.\n\n"
+            "🆘 **Problemi?**\n"
+            f"Contattaci: {COMPANY_EMAIL}"
+        )
+        await query.edit_message_text(help_message, parse_mode='Markdown')
+
+    async def _handle_quick_booking_callback(self, query):
+        """Avvia prenotazione rapida dal bottone"""
+        user_id = query.from_user.id
+        
+        # Inizia il flusso di prenotazione
+        self.booking_flows[user_id] = {
+            "step": "waiting_datetime",
+            "data": {}
+        }
+        
+        # Crea bottoni per orari comuni
+        keyboard = self._create_time_selection_keyboard()
+        
+        message = (
+            "📅 **Prenotazione Rapida** ⚡\n\n"
+            "🎯 Quando vuoi prenotare?\n\n"
+            "👇 **Scegli un orario comune:**"
+        )
+        
+        await query.edit_message_text(message, reply_markup=keyboard, parse_mode='Markdown')
+
+    async def _handle_show_appointments_callback(self, query):
+        """Mostra gli appuntamenti dell'utente"""
+        user_id = query.from_user.id
+        
+        try:
+            # Ottieni solo gli appuntamenti di questo utente
+            events = self.calendar_manager.get_upcoming_appointments(7, user_id)
+            message = self.calendar_manager.format_appointment_list(events)
+            
+            # Aggiungi bottone per tornare al menu
+            keyboard = [
+                [InlineKeyboardButton("🔙 Torna al Menu", callback_data="back_to_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Errore nel recupero appuntamenti: {e}")
+            await query.edit_message_text("❌ Errore nel recupero degli appuntamenti.")
+
+    async def _handle_show_profile_callback(self, query):
+        """Mostra il profilo dell'utente"""
+        user_id = query.from_user.id
+        
+        contact_info = self.user_manager.get_user_contact_info(user_id)
+        message = f"👤 **Il tuo profilo:**\n\n{contact_info}\n\n_Per modificare i dati, contatta l'amministratore._"
+        
+        # Bottone per tornare al menu
+        keyboard = [
+            [InlineKeyboardButton("🔙 Torna al Menu", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+    async def _handle_show_contacts_callback(self, query):
+        """Mostra i contatti dell'azienda"""
+        contacts_message = (
+            f"📞 **Contatti {COMPANY_NAME}**\n\n"
+            f"📧 **Email:** {COMPANY_EMAIL}\n"
+            f"📱 **Telefono:** {COMPANY_PHONE}\n"
+            f"🌐 **Sito Web:** {COMPANY_WEBSITE}\n"
+            f"📍 **Indirizzo:** {COMPANY_ADDRESS}\n\n"
+            "🕐 **Orari di apertura:**\n"
+            "Lunedì - Venerdì: 9:00 - 18:00\n"
+            "Sabato: Su appuntamento\n"
+            "Domenica: Chiuso\n\n"
+            "💬 **Questo bot è attivo 24/7** per prenotazioni e informazioni!\n\n"
+            "🚀 **Emergenze?** Invia un messaggio e ti risponderemo appena possibile."
+        )
+        
+        # Bottone per tornare al menu
+        keyboard = [
+            [InlineKeyboardButton("🔙 Torna al Menu", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(contacts_message, reply_markup=reply_markup, parse_mode='Markdown')
+
+    async def _handle_cancel_registration_callback(self, query):
+        """Annulla la registrazione in corso"""
+        user_id = query.from_user.id
+        
+        # Rimuovi il flusso di registrazione se esiste
+        if user_id in self.registration_flows:
+            del self.registration_flows[user_id]
+        
+        # Torna al messaggio di benvenuto per utenti non registrati
+        await query.message.delete()
+        
+        fake_update = type('obj', (object,), {
+            'effective_user': query.from_user,
+            'effective_chat': query.message.chat,
+            'message': query.message
+        })()
+        
+        await self.show_new_user_welcome(fake_update)
+
+    async def _handle_back_to_menu_callback(self, query):
+        """Torna al menu principale"""
+        user_id = query.from_user.id
+        
+        # Cancella il messaggio attuale
+        await query.message.delete()
+        
+        # Crea un update fittizio e mostra il welcome appropriato
+        fake_update = type('obj', (object,), {
+            'effective_user': query.from_user,
+            'effective_chat': query.message.chat,
+            'message': query.message
+        })()
+        
+        # Mostra il menu appropriato
+        if self.user_manager.is_user_registered(user_id):
+            await self.show_registered_user_welcome(fake_update)
+        else:
+            await self.show_new_user_welcome(fake_update)
 
     def _create_time_selection_keyboard(self):
         """Crea una tastiera inline con orari comuni"""
@@ -1192,7 +1438,7 @@ END:VCALENDAR"""
             flow["data"]["nome"] = extracted_name.title()
             flow["step"] = "waiting_cognome"
             
-            message = f"✅ Perfetto **{extracted_name.title()}**!\n\nOra dimmi il tuo **cognome**:"
+            message = f"✅ Perfetto **{extracted_name.title()}**!\n\n🎯 **Step 2/5: Qual è il tuo cognome?**\n_(Scrivi solo il cognome - es: Rossi, Bianchi, Ferrari)_"
             await self.send_text_and_voice(update, message)
             
         elif flow["step"] == "waiting_cognome":
@@ -1206,7 +1452,7 @@ END:VCALENDAR"""
             flow["data"]["cognome"] = extracted_surname.title()
             flow["step"] = "waiting_email"
             
-            message = f"✅ **{flow['data']['nome']} {extracted_surname.title()}**\n\nAdesso mi serve la tua **email**:"
+            message = f"✅ **{flow['data']['nome']} {extracted_surname.title()}**\n\n🎯 **Step 3/5: Qual è la tua email?**\n_(Formato: nome@esempio.com)_"
             await self.send_text_and_voice(update, message)
             
         elif flow["step"] == "waiting_email":
@@ -1219,7 +1465,7 @@ END:VCALENDAR"""
             flow["data"]["email"] = email
             flow["step"] = "waiting_telefono"
             
-            message = "✅ Email salvata!\n\nAdesso dimmi il tuo **numero di telefono**:"
+            message = "✅ Email salvata!\n\n🎯 **Step 4/5: Qual è il tuo numero di telefono?**\n_(Con prefisso - es: +39 123 456 789)_"
             await self.send_text_and_voice(update, message)
             
         elif flow["step"] == "waiting_telefono":
@@ -1227,14 +1473,14 @@ END:VCALENDAR"""
             flow["data"]["telefono"] = telefono
             flow["step"] = "waiting_via"
             
-            message = "✅ Telefono salvato!\n\nDimmi il tuo **indirizzo** (via e numero civico):"
+            message = "✅ Telefono salvato!\n\n🎯 **Step 5/5: Qual è il tuo indirizzo?**\n_(Via e numero civico - es: Via Roma 123)_"
             await self.send_text_and_voice(update, message)
             
         elif flow["step"] == "waiting_via":
             flow["data"]["via"] = text.strip().title()
             flow["step"] = "waiting_citta"
             
-            message = "✅ Indirizzo salvato!\n\nInfine, dimmi la tua **città**:"
+            message = "✅ Indirizzo salvato!\n\n🎯 **Ultimo step: In che città abiti?**\n_(Nome della città - es: Milano, Roma, Napoli)_"
             await self.send_text_and_voice(update, message)
             
         elif flow["step"] == "waiting_citta":
@@ -1256,20 +1502,26 @@ END:VCALENDAR"""
                 # Pulisci il flusso di registrazione
                 del self.registration_flows[user_id]
                 
-                # Messaggio di benvenuto completato
+                # Messaggio di benvenuto completato con bottoni
+                keyboard = [
+                    [InlineKeyboardButton("📅 Prima Prenotazione", callback_data="quick_booking")],
+                    [InlineKeyboardButton("👤 Verifica Profilo", callback_data="show_profile"),
+                     InlineKeyboardButton("❓ Guida", callback_data="show_help")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
                 welcome_message = (
-                    f"🎉 **Registrazione completata!**\n\n"
-                    f"Benvenuto **{flow['data']['nome']} {flow['data']['cognome']}**!\n\n"
-                    f"✅ I tuoi dati sono stati salvati in sicurezza.\n"
-                    f"📅 Ora puoi prenotare i tuoi appuntamenti!\n\n"
-                    f"**Comandi disponibili:**\n"
-                    f"📅 /prenota - Prenota un appuntamento\n"
-                    f"📋 /appuntamenti - Vedi i tuoi appuntamenti\n"
-                    f"👤 /profilo - Visualizza il tuo profilo\n\n"
-                    f"Puoi anche dire semplicemente: _'Voglio prenotare per domani alle 15'_ e io ti aiuterò! 🚀"
+                    f"🎉 **Registrazione completata con successo!**\n\n"
+                    f"Benvenuto nella famiglia **{COMPANY_NAME}**, **{flow['data']['nome']} {flow['data']['cognome']}**! 🚀\n\n"
+                    f"✅ I tuoi dati sono stati salvati in sicurezza\n"
+                    f"🔒 Privacy garantita al 100%\n"
+                    f"📅 Sei pronto per prenotare il tuo primo appuntamento!\n\n"
+                    f"💡 **Suggerimento:** Puoi scrivermi in linguaggio naturale!\n"
+                    f"_Es: \"Voglio prenotare per domani alle 15\"_ 🎯\n\n"
+                    f"👇 **Cosa vuoi fare ora?**"
                 )
                 
-                await self.send_text_and_voice(update, welcome_message)
+                await self.send_text_and_voice(update, welcome_message, reply_markup)
             else:
                 message = "❌ Errore nella registrazione. Riprova più tardi o contatta l'assistenza."
                 await self.send_text_and_voice(update, message)
