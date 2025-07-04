@@ -230,13 +230,26 @@ class CalendarManager:
             start_utc = start_time.astimezone(pytz.UTC)
             end_utc = end_time.astimezone(pytz.UTC)
             
-            # Aggiungi User ID alla descrizione per isolamento privacy
+            # Crea titolo e descrizione arricchiti con dati utente
+            enhanced_title = title
+            enhanced_description = description
+            
             if user_id:
-                description = f"[USER_ID:{user_id}] {description}"
+                # Aggiungi User ID alla descrizione per isolamento privacy
+                enhanced_description = f"[USER_ID:{user_id}] {description}"
+                
+                # Se la descrizione contiene informazioni del cliente, includiamole nel titolo
+                if "Cliente:" in description:
+                    # Estrai il nome del cliente dalla descrizione per il titolo
+                    import re
+                    client_match = re.search(r"Cliente: ([^\n]+)", description)
+                    if client_match:
+                        client_name = client_match.group(1).strip()
+                        enhanced_title = f"{title} - {client_name}"
             
             event = {
-                'summary': title,
-                'description': description,
+                'summary': enhanced_title,
+                'description': enhanced_description,
                 'start': {
                     'dateTime': start_utc.isoformat(),
                     'timeZone': 'Europe/Rome',

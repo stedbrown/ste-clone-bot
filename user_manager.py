@@ -105,10 +105,23 @@ class UserManager:
         if not user_data:
             return f"User ID: {user_id}"
         
-        return f"""Cliente: {user_data['nome']} {user_data['cognome']}
-Email: {user_data['email']}
-Tel: {user_data['telefono']}
-Indirizzo: {user_data['via']}, {user_data['citta']}"""
+        return f"""═════════════════════════════════════════
+👤 INFORMAZIONI CLIENTE
+═════════════════════════════════════════
+
+Cliente: {user_data['nome']} {user_data['cognome']}
+📧 Email: {user_data['email']}
+📱 Telefono: {user_data['telefono']}
+🏠 Indirizzo: {user_data['via']}, {user_data['citta']}
+
+📊 Statistiche Cliente:
+• Appuntamenti totali: {user_data['total_appointments']}
+• Ultimo appuntamento: {user_data['last_appointment'] or 'Primo appuntamento'}
+• Cliente dal: {user_data['registration_date'][:10]}
+
+═════════════════════════════════════════
+⚠️  INFORMAZIONI RISERVATE - UP! Informatica
+═════════════════════════════════════════"""
     
     def get_all_users_count(self) -> int:
         """Ottieni il numero totale di utenti registrati"""

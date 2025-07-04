@@ -831,7 +831,7 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         ]
         return InlineKeyboardMarkup(keyboard)
 
-    def _generate_ics_file(self, title: str, start_time: datetime, end_time: datetime, description: str = "") -> str:
+    def _generate_ics_file(self, title: str, start_time: datetime, end_time: datetime, description: str = "", user_info: str = "") -> str:
         """Genera un file .ics per l'appuntamento"""
         try:
             # Genera un UUID unico per l'evento
@@ -847,16 +847,36 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
             end_str = end_utc.strftime("%Y%m%dT%H%M%SZ")
             created_str = created_utc.strftime("%Y%m%dT%H%M%SZ")
             
+            # Crea descrizione completa per l'utente con informazioni azienda
+            user_description = f"""Appuntamento con UP! Informatica
+
+{description}
+
+═══════════════════════════════════════
+🏢 UP! INFORMATICA
+📧 Email: info@upinformatica.it  
+📱 Tel: [Inserire numero]
+🌐 Web: www.upinformatica.it
+📍 Indirizzo: [Inserire indirizzo azienda]
+═══════════════════════════════════════
+
+Ricorda di portare con te eventuali documenti necessari.
+Per modifiche o cancellazioni contattaci in anticipo.
+
+Grazie per aver scelto UP! Informatica! 🚀"""
+            
             # Escape caratteri speciali per il formato .ics
             title_escaped = title.replace(',', '\\,').replace(';', '\\;').replace('\\', '\\\\')
-            description_escaped = description.replace(',', '\\,').replace(';', '\\;').replace('\\', '\\\\')
+            description_escaped = user_description.replace(',', '\\,').replace(';', '\\;').replace('\\', '\\\\').replace('\n', '\\n')
             
             # Contenuto del file .ics
             ics_content = f"""BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//Telegram Bot//Appointment//IT
+PRODID:-//UP! Informatica//Appointment Bot//IT
 CALSCALE:GREGORIAN
 METHOD:PUBLISH
+X-WR-CALNAME:Appuntamenti UP! Informatica
+X-WR-CALDESC:Calendario appuntamenti UP! Informatica
 BEGIN:VEVENT
 UID:{event_uid}
 DTSTART:{start_str}
@@ -866,8 +886,19 @@ CREATED:{created_str}
 LAST-MODIFIED:{created_str}
 SUMMARY:{title_escaped}
 DESCRIPTION:{description_escaped}
+ORGANIZER;CN=UP! Informatica:MAILTO:info@upinformatica.it
 STATUS:CONFIRMED
 TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:Promemoria: {title_escaped} tra 15 minuti
+END:VALARM
+BEGIN:VALARM
+TRIGGER:-PT1H
+ACTION:DISPLAY
+DESCRIPTION:Promemoria: {title_escaped} tra 1 ora
+END:VALARM
 END:VEVENT
 END:VCALENDAR"""
 
@@ -944,11 +975,15 @@ END:VCALENDAR"""
                     
                     # Genera e invia file .ics per il calendario
                     try:
+                        # Ottieni informazioni utente per il file .ics
+                        user_display_name = self.user_manager.get_user_display_name(user_id)
+                        
                         ics_content = self._generate_ics_file(
                             title=flow['data']['title'],
                             start_time=flow['data']['datetime'],
                             end_time=flow['data']['end_time'],
-                            description=f"Appuntamento prenotato tramite bot Telegram"
+                            description=f"Appuntamento: {flow['data']['title']}",
+                            user_info=user_display_name
                         )
                         
                         if ics_content:
@@ -1118,17 +1153,31 @@ END:VCALENDAR"""
         flow = self.registration_flows[user_id]
         
         if flow["step"] == "waiting_nome":
-            flow["data"]["nome"] = text.strip().title()
+            # Estrai il nome usando AI per una migliore precisione
+            extracted_name = await self.extract_name_from_text(text)
+            if not extracted_name:
+                message = "❌ Non ho capito il tuo nome. Potresti ripeterlo in modo più chiaro?\n\n*Esempio: 'Mi chiamo Marco' oppure semplicemente 'Marco'*"
+                await self.send_text_and_voice(update, message)
+                return
+                
+            flow["data"]["nome"] = extracted_name.title()
             flow["step"] = "waiting_cognome"
             
-            message = f"✅ Perfetto **{text.strip().title()}**!\n\nOra dimmi il tuo **cognome**:"
+            message = f"✅ Perfetto **{extracted_name.title()}**!\n\nOra dimmi il tuo **cognome**:"
             await self.send_text_and_voice(update, message)
             
         elif flow["step"] == "waiting_cognome":
-            flow["data"]["cognome"] = text.strip().title()
+            # Estrai il cognome usando AI
+            extracted_surname = await self.extract_name_from_text(text)
+            if not extracted_surname:
+                message = "❌ Non ho capito il tuo cognome. Potresti ripeterlo?\n\n*Esempio: 'Il mio cognome è Rossi' oppure semplicemente 'Rossi'*"
+                await self.send_text_and_voice(update, message)
+                return
+                
+            flow["data"]["cognome"] = extracted_surname.title()
             flow["step"] = "waiting_email"
             
-            message = f"✅ **{flow['data']['nome']} {text.strip().title()}**\n\nAdesso mi serve la tua **email**:"
+            message = f"✅ **{flow['data']['nome']} {extracted_surname.title()}**\n\nAdesso mi serve la tua **email**:"
             await self.send_text_and_voice(update, message)
             
         elif flow["step"] == "waiting_email":
@@ -1196,6 +1245,81 @@ END:VCALENDAR"""
                 message = "❌ Errore nella registrazione. Riprova più tardi o contatta l'assistenza."
                 await self.send_text_and_voice(update, message)
                 del self.registration_flows[user_id]
+
+    async def extract_name_from_text(self, text: str) -> str:
+        """Estrae il nome/cognome dal testo usando AI"""
+        try:
+            # Prompt specifico per l'estrazione di nomi
+            extraction_prompt = f"""Estrai SOLO il nome proprio dalla seguente frase, senza altre parole:
+
+Frase: "{text}"
+
+Regole:
+- Restituisci SOLO il nome proprio (es: "Marco", "Maria", "Rossi", "Verdi")
+- NON includere parole come "mi chiamo", "sono", "il mio nome è", ecc.
+- Se ci sono più nomi, prendi solo il primo
+- Se non c'è un nome, rispondi "NESSUN_NOME"
+- Mantieni la maiuscola iniziale
+
+Esempi:
+"Mi chiamo Stefano" → Stefano
+"Sono Marco" → Marco  
+"Il mio cognome è Rossi" → Rossi
+"Anna Maria" → Anna
+"francesco" → Francesco
+"ciao come stai" → NESSUN_NOME
+
+Nome estratto:"""
+
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": extraction_prompt}],
+                max_tokens=50,
+                temperature=0.1
+            )
+            
+            extracted = response.choices[0].message.content.strip()
+            
+            # Verifica che sia un nome valido
+            if extracted == "NESSUN_NOME" or len(extracted) < 2 or len(extracted) > 30:
+                return None
+                
+            # Rimuovi eventuali caratteri non alfabetici (tranne spazi e apostrofi)
+            import re
+            cleaned = re.sub(r"[^a-zA-ZÀ-ÿ\s']", "", extracted).strip()
+            
+            return cleaned if cleaned else None
+            
+        except Exception as e:
+            logger.error(f"Errore nell'estrazione del nome: {e}")
+            # Fallback: prova estrazione semplice
+            simple_extract = self.simple_name_extraction(text)
+            return simple_extract
+
+    def simple_name_extraction(self, text: str) -> str:
+        """Estrazione semplice del nome come fallback"""
+        import re
+        
+        text = text.strip()
+        
+        # Pattern comuni per nomi
+        patterns = [
+            r"mi chiamo\s+([a-zA-ZÀ-ÿ\s']+)",
+            r"sono\s+([a-zA-ZÀ-ÿ\s']+)",
+            r"il mio nome è\s+([a-zA-ZÀ-ÿ\s']+)",
+            r"mi chiamano\s+([a-zA-ZÀ-ÿ\s']+)",
+            r"^([a-zA-ZÀ-ÿ']+)$",  # Solo nome
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text.lower())
+            if match:
+                name = match.group(1).strip().title()
+                # Verifica che sia ragionevole
+                if 2 <= len(name) <= 30 and not any(char.isdigit() for char in name):
+                    return name
+        
+        return None
 
     async def start_booking_flow(self, update: Update, text: str):
         """Avvia il flusso di prenotazione dal linguaggio naturale"""
