@@ -30,11 +30,11 @@ from user_manager import UserManager
 # 🏢 INFORMAZIONI AZIENDA UP! INFORMATICA
 # ═══════════════════════════════════════════════════════════════
 COMPANY_NAME = "UP! Informatica"
-COMPANY_EMAIL = "info@upinformatica.it"
-COMPANY_PHONE = "+39 XXX XXX XXXX"  # Inserire numero reale
-COMPANY_WEBSITE = "www.upinformatica.it"
-COMPANY_ADDRESS = "Via Example 123, 00000 Città (Provincia)"  # Inserire indirizzo reale
-COMPANY_DESCRIPTION = "Servizi informatici professionali e soluzioni digitali innovative"
+COMPANY_EMAIL = "stefanovananti@icloud.com"
+COMPANY_PHONE = "+41 76 805 73 76"  # Inserire numero reale
+COMPANY_WEBSITE = "www.up-informatica.ch"
+COMPANY_ADDRESS = "Svizzera"  # Inserire indirizzo reale
+COMPANY_DESCRIPTION = "Assistenza informatica"
 
 # Configurazione per Railway
 PORT = int(os.environ.get('PORT', 8000))
@@ -244,17 +244,17 @@ class TelegramBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         welcome_message = (
-            f"👋 **Benvenuto {user_name}!** 🎉\n\n"
-            f"🏢 Sono l'assistente virtuale di **{COMPANY_NAME}**\n\n"
-            "📅 **Posso aiutarti a:**\n"
-            "• Prenotare appuntamenti facilmente\n"
-            "• Gestire il tuo calendario personale\n"
-            "• Rispondere alle tue domande\n"
-            "• Inviarti promemoria automatici\n\n"
-            "🔒 **Privacy garantita:** Solo tu puoi vedere i tuoi appuntamenti\n"
-            "🎤 **Comodo:** Puoi scrivermi o inviarmi messaggi vocali\n"
-            "📱 **Moderno:** Uso bottoni interattivi per tutto!\n\n"
-            "⚡ **Per iniziare, devo registrare alcune tue informazioni di base.**\n\n"
+            f"👋 **Ciao {user_name}! Benvenuto da UP! Informatica!** 🎉\n\n"
+            f"🔧 Sono Stefano, il tuo **assistente informatico virtuale**\n\n"
+            "💻 **Come posso aiutarti:**\n"
+            "• Assistenza PC e problemi tecnici\n"
+            "• Prenotare appuntamenti per interventi\n"
+            "• Installazioni software e configurazioni\n"
+            "• Supporto reti, virus e manutenzione\n\n"
+            "🔒 **Professionale e discreto**\n"
+            "🎤 **Comodo:** Scrivi o invia messaggi vocali\n"
+            "📱 **Veloce:** Uso bottoni per tutto!\n\n"
+            "⚡ **Per iniziare, registro le tue informazioni di base.**\n\n"
             "👇 **Scegli cosa vuoi fare:**"
         )
         
@@ -281,13 +281,13 @@ class TelegramBot:
         last_appointment = user_info.get('last_appointment', 'Mai')
         
         welcome_message = (
-            f"🤖 **Bentornato {user_display_name}!** 🎉\n\n"
+            f"🔧 **Ciao {user_display_name}! Bentornato da UP! Informatica!** 🎉\n\n"
             f"📊 **Le tue statistiche:**\n"
             f"• Appuntamenti prenotati: **{total_appointments}**\n"
             f"• Ultimo appuntamento: **{last_appointment}**\n\n"
-            "🚀 **Cosa vuoi fare oggi?**\n\n"
-            "💡 **Suggerimento:** Puoi anche scrivermi direttamente!\n"
-            "_\"Voglio prenotare per domani alle 15\"_ e io capisco subito! 🎯\n\n"
+            "💻 **Cosa posso fare per te oggi?**\n\n"
+            "💡 **Suggerimento:** Raccontami il tuo problema!\n"
+            "_\"Il WiFi non funziona\"_ oppure _\"Computer lento\"_ e ti aiuto subito! 🎯\n\n"
             "👇 **Oppure usa i bottoni qui sotto:**"
         )
         
@@ -490,21 +490,44 @@ class TelegramBot:
                 saluto_contesto = "È notte"
             
             # Costruisci i messaggi per OpenAI includendo la cronologia
-            system_prompt = f"""Sei una persona vera, non un assistente AI. Parla come un amico intimo, in modo spontaneo e naturale. Usa un linguaggio colloquiale, informale. Non dire mai di essere un'IA o un assistente. Rispondi come se fossi una persona reale che sta semplicemente chiacchierando con un amico. Sii empatico, caloroso e autentico. Usa espressioni italiane naturali e spontanee. Ricorda quello che è stato detto nella conversazione precedente e fai riferimento ad esso quando appropriato.
+            system_prompt = f"""Sei Stefano, tecnico informatico di UP! Informatica. Parla come un amico competente, in modo spontaneo e naturale. Sei specializzato in assistenza informatica e SEMPRE cerchi di aiutare prima con soluzioni rapide.
 
-INFORMAZIONI TEMPORALI ATTUALI:
+🔧 TUO RUOLO:
+- Tecnico informatico esperto e amichevole
+- Risolvi problemi PC, software, reti, virus, configurazioni
+- Installi programmi, configuri sistemi, fai formazione
+- Sei disponibile per assistenza a domicilio/remota
+
+🎯 APPROCCIO AI PROBLEMI (FONDAMENTALE):
+Quando qualcuno ha un problema informatico:
+
+1. **ASCOLTA con empatia**: "Ah capisco, è frustrante quando..."
+2. **PROPONI SOLUZIONI IMMEDIATE**: "Proviamo subito questa cosa..." o "Ti dico una procedura veloce..."
+3. **SEMPRE OFFRI ASSISTENZA DIRETTA**: "Se non dovesse funzionare, passo io da te e risolviamo insieme!" o "Quando vuoi che vengo a dare un'occhiata?"
+
+ESEMPI PERFETTI (USA SEMPRE IL TUO INTERVENTO):
+- "Ah il WiFi non va! Proviamo così: vai in Impostazioni → Rete → Dimentica rete e riconnettiti. Se continua a non andare, passo da te e sistemiamo tutto insieme! Quando ti va bene?"
+- "Computer lento? Prova a riavviare e aprire solo un programma alla volta. Se è ancora lento, posso venire a fare una pulizia completa del sistema. Che ne dici di domani pomeriggio?"
+- "Problema con un virus? Disconnetti subito internet! Intanto ti guido al telefono, ma se è complicato vengo direttamente da te con i miei strumenti. Preferisci che passo oggi o domani?"
+
+🚀 SEMPRE PROPONI IL TUO INTERVENTO: "passo da te", "vengo a vedere", "facciamo insieme", "ti do una mano di persona"
+
+❌ NON DIRE MAI: "contatta il provider", "chiama il supporto", "rivolgiti a..." - SEI TU il tecnico che risolve!
+
+INFORMAZIONI TEMPORALI:
 - Data e ora: {data_ora_italiana}
 - {saluto_contesto}
 - Giorno della settimana: {giorno_settimana}
 
-IMPORTANTE: Il sistema può rilevare automaticamente quando l'utente vuole prenotare appuntamenti dai suoi messaggi naturali (sia scritti che vocali). Non devi suggerire comandi specifici, rispondi naturalmente. Il sistema gestirà automaticamente:
-- Rilevamento di intenzioni di prenotazione da messaggi naturali
-- Avvio automatico del processo di prenotazione
-- Gestione del calendario Google integrato
+IMPORTANTE: Il sistema rileva automaticamente quando proponi appuntamenti ("possiamo vederci", "passo da te", "facciamo insieme") e gestisce la prenotazione automaticamente.
 
-Se parlano di appuntamenti, tempi, incontri, o vogliono organizzare qualcosa, rispondi in modo naturale e lascia che il sistema rilevi l'intenzione automaticamente.
+🎯 STRATEGIA VINCENTE:
+- Per OGNI problema, dopo la soluzione rapida, SEMPRE proponi un tuo intervento
+- Usa frasi come: "passo da te", "vengo a controllare", "faccio un salto", "ci vediamo"
+- Sii SPECIFICO con gli orari: "domani pomeriggio", "oggi verso sera", "quando preferisci"
+- Fai sentire l'utente al sicuro: TU sei la soluzione ai suoi problemi
 
-Usa queste informazioni quando appropriate per dare contesto temporale alle tue risposte. Se ti chiedono che giorno è, che ora è, ecc., rispondi naturalmente basandoti su queste informazioni."""
+Ricorda: Sei un tecnico che AMA risolvere problemi! Prima una soluzione rapida, poi SEMPRE proponi il tuo intervento diretto."""
 
             messages = [
                 {
@@ -530,7 +553,7 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
                 openai_client.chat.completions.create,
                 model="gpt-3.5-turbo",
                 messages=messages,
-                max_tokens=150,
+                max_tokens=300,
                 temperature=0.9
             )
             
@@ -648,13 +671,13 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         # Analizza il tipo di messaggio e genera risposta vocale naturale
         text_lower = original_text.lower()
         
-        # Messaggi di benvenuto
-        if "benvenuto" in text_lower or "bentornato" in text_lower:
-            return f"Ciao {user_name}! Sono qui per aiutarti con i tuoi appuntamenti. Dimmi pure cosa ti serve!"
+        # Messaggi di benvenuto - Diversi trigger possibili
+        if any(trigger in text_lower for trigger in ["benvenuto", "bentornato", "ciao", "cosa vuoi fare", "scegli cosa vuoi fare", "oppure usa i bottoni"]):
+            return f"Ciao {user_name}! Benvenuto da UP! Informatica. Come posso aiutarti?"
         
         # Registrazione
         if "registrazione completata" in text_lower:
-            return f"Perfetto {user_name}! Ora sei registrato e possiamo lavorare insieme. Sono qui per te!"
+            return f"Perfetto {user_name}! Ora sei registrato con UP! Informatica. Sono Stefano, il tuo tecnico di fiducia. Come posso aiutarti?"
         
         # Richiesta dati registrazione
         if "come ti chiami" in text_lower:
@@ -710,6 +733,14 @@ Usa queste informazioni quando appropriate per dare contesto temporale alle tue 
         # Annullamenti
         if "annullata" in text_lower or "annullato" in text_lower:
             return "Nessun problema! Quando vuoi riprovare, sono qui."
+        
+        # Messaggi specifici per problemi informatici
+        if any(keyword in text_lower for keyword in ['problema', 'errore', 'virus', 'lento', 'crash', 'blocco']):
+            return f"Ti aiuto subito a risolvere questo problema, {user_name}!"
+        elif any(keyword in text_lower for keyword in ['installare', 'configurare', 'impostare']):
+            return f"Ti spiego come fare, {user_name}. È più semplice di quello che sembra!"
+        elif any(keyword in text_lower for keyword in ['vederci', 'vengo', 'passo', 'controllo']):
+            return f"Perfetto! Organizziamo tutto, {user_name}!"
         
         # Default: messaggio generico accompagnatore
         return f"Ecco le informazioni che ti servono, {user_name}!"
@@ -1314,9 +1345,15 @@ END:VCALENDAR"""
             'prenota', 'appuntamento', 'prenotare', 'prenotazione', 'fissare', 'fissa',
             'meeting', 'incontro', 'riunione', 'disponibilità', 'libero', 'impegnato',
             
+            # Espressioni di incontro dopo troubleshooting
+            'possiamo vederci', 'ci vediamo', 'passo da te', 'vengo da te', 'facciamo insieme',
+            'controllo completo', 'vieni a casa', 'vieni qui', 'incontriamoci',
+            'quando puoi venire', 'quando sei disponibile', 'quando puoi passare',
+            'vediamoci', 'faccio un salto', 'risolvo tutto io', 'sistemo tutto',
+            
             # Espressioni temporali che indicano voglia di organizzare
-            'quando sei libero', 'quando puoi', 'possiamo vederci', 'ci vediamo',
-            'voglio vederti', 'dobbiamo incontrarci', 'organizziamo', 'pianifichiamo',
+            'quando sei libero', 'quando puoi', 'voglio vederti', 'dobbiamo incontrarci', 
+            'organizziamo', 'pianifichiamo',
             
             # Riferimenti temporali specifici che spesso accompagnano prenotazioni
             'domani alle', 'dopodomani alle', 'lunedì alle', 'martedì alle', 
@@ -1326,6 +1363,17 @@ END:VCALENDAR"""
             # Verbi di azione per organizzare
             'voglio prenotare', 'devo prenotare', 'vorrei prenotare', 'posso prenotare',
             'ho bisogno di', 'serve un appuntamento', 'mi serve', 
+            
+            # Termini specifici informatici che portano ad appuntamenti
+            'assistenza', 'supporto tecnico', 'riparazione', 'installazione', 'configurazione',
+            'problema pc', 'problema computer', 'virus', 'backup', 'aggiornamento', 
+            'formazione', 'consulenza informatica', 'manutenzione', 'rete', 'wifi',
+            'software', 'hardware', 'sistema', 'computer lento', 'non funziona',
+            'errore', 'crash', 'blocco', 'schermo blu', 'reinstallazione',
+            
+            # Frasi che indicano necessità di intervento tecnico
+            'non riesco', 'non so come', 'non capisco', 'aiutami', 'mi aiuti',
+            'puoi aiutarmi', 'servirebbe il tuo aiuto', 'vieni a vedere',
             
             # Altri indicatori
             'calendario', 'agenda', 'programmare', 'slot', 'orario',
@@ -1346,7 +1394,33 @@ END:VCALENDAR"""
             'quando possiamo vederci',
             'sei libero',
             'hai tempo',
-            'possiamo incontrarci'
+            'possiamo incontrarci',
+            
+            # Frasi che il bot potrebbe dire per proporre appuntamenti
+            'se non funziona, possiamo vederci',
+            'passo da te e sistemo tutto',
+            'facciamo un controllo completo insieme',
+            'vengo direttamente da te',
+            'se continua così, prenotiamo',
+            'risolvo tutto io',
+            'sistemo tutto',
+            'faccio un salto da te',
+            'vieni a vedere',
+            'quando vuoi che vengo',
+            'preferisci che vengo',
+            'ci vediamo e risolviamo',
+            'incontriamoci e vediamo',
+            'proviamo insieme',
+            'ti guido al telefono o vengo da te',
+            'quando ti va bene',
+            'che ne dici di domani',
+            'posso venire a fare',
+            'vengo a controllare',
+            'ti do una mano di persona',
+            'facciamo insieme',
+            'quando preferisci che passo',
+            'oggi verso sera',
+            'domani pomeriggio'
         ]
         
         text_lower = text.lower()
